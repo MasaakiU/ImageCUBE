@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>spectrum file</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.example.document.spc</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>spc</string>
+                </array>
+            </dict>
+            <key>UTTypeIconFile</key>
+            <string>icon_file.icns</string>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>spc</string>
+            </array>
+            <key>CFBundleTypeIconFile</key>
+            <string>icon_file.icns</string>
+            <key>CFBundleTypeName</key>
+            <string>spectrum file</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSIsAppleDefaultForType</key>
+            <true/>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.example.document.spc</string>
+            </array>
+        </dict>
+    </array>
+    <key>CFBundleExecutable</key>
+    <string>ImageCUBE</string>
+    <key>CFBundleDisplayName</key>
+    <string>ImageCUBE</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>Icon.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.masmac.ic</string>
+    <key>LSBackgroundOnly</key>
+    <string>0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.3.2</string>
+    <key>CFBundleVersion</key>
+    <string>0.3.2</string>
+    <key>CFBundleName</key>
+    <string>ImageCUBE</string>
+    <!-- Enable Retina support on OS X: -->
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+</dict>
+</plist>

@@ -1,0 +1,15 @@
+{
+    "freeze_dir": "target/ImageCUBE.app",
+    "mac_bundle_identifier": "com.masmac.ic",
+    "installer": "ImageCUBE.dmg",
+    "files_to_filter": [
+        "src/freeze/mac/Contents/Info.plist"
+    ],
+    "show_console_window": false,
+    "ext_name": "spc",
+    "bundle_type_name": "spectrum file",
+    "bundle_type_role": "Editor",
+    "handler_rank": "Owner",
+    "item_content_types": "com.example.document.spc",
+    "type_conforms_to": "public.data"
+}

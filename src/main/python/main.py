@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         crrAction.triggered.connect(functools.partial(self.menu_crr, compatible_window_types=["ms"]))
         hsCrrAction = my_w.CustomAction(gf.icon_path, "CRR1.svg", "Hide/Show Cosmic Rays", self)
         hsCrrAction.triggered.connect(functools.partial(self.menu_hs_crr, compatible_window_types=["ms"]))
-        clearCrrAction = my_w.CustomAction(gf.icon_path, "CRR1.svg", "Clear Cosmic Rays", self)
+        clearCrrAction = my_w.CustomAction(gf.icon_path, "CRR1.svg", "Clear Detected Cosmic Rays", self)
         clearCrrAction.triggered.connect(functools.partial(self.menu_clear_crr, compatible_window_types=["ms"]))
         pcaNrAction = my_w.CustomAction(gf.icon_path, "NF1.svg", "PCA based Noise Filter", self)
         pcaNrAction.triggered.connect(functools.partial(self.menu_pcaNr, compatible_window_types=["ms"]))

@@ -292,7 +292,7 @@ class ToolbarLayout(QVBoxLayout):
             btnCosmicRayRemoval.clicked.connect(functools.partial(self.cosmic_ray_removal, ask=True))
             # 宇宙線除去右クリックメニュー
             btnCosmicRayRemoval.setContextMenuPolicy(Qt.CustomContextMenu)
-            crr_action_name_list=["hide/show Cosmic Rays", "Clear Cosmic Rays"]
+            crr_action_name_list=["hide/show Cosmic Rays", "Clear Detected Cosmic Rays"]
             crr_action_func_list=[self.hide_show_cosmic_rays, self.clear_cosmic_rays]
             menu = my_w.CustomContextMenu(parentBtn=btnCosmicRayRemoval, action_name_list=crr_action_name_list, action_func_list=crr_action_func_list)
             btnCosmicRayRemoval.customContextMenuRequested.connect(functools.partial(my_w.on_context_menu, menu=menu))
@@ -649,7 +649,7 @@ class ToolbarLayout(QVBoxLayout):
         file_path, log = self.clear_cosmic_rays(ask=ask)
         if log == "CRR clear canceled":
             return
-        # プログレスバー処理：一時的に、プログレスバーなしで。
+        # プログレスバー処理
         self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Detecting cosmic rays... please wait.")
         self.pbar_widget.addValue(10)
         self.pbar_widget.show()
@@ -693,7 +693,7 @@ class ToolbarLayout(QVBoxLayout):
         if b'cosmic_ray_locs' not in self.parent.spectrum_widget.spc_file.log_dict:
             return file_path, "CRR not set"
         if ask:
-            warning_popup = popups.WarningPopup("Are you really sure to clear cosmic rays?", title="warning", p_type="Bool")
+            warning_popup = popups.WarningPopup("Are you really sure to clear or update detected cosmic rays?", title="warning", p_type="Bool")
             done = warning_popup.exec_()
             if done == 65536:
                 return None, "CRR clear canceled"

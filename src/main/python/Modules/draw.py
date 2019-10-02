@@ -1590,14 +1590,15 @@ class MapWidget(pg.GraphicsLayoutWidget):
     # spc_fileを渡された場合（最初だけ？）
     def initiate_map_spectrum(self, spc_file):
         self.set_crosshair(0, 0)
-        # 枠追加
-        w, h = spc_file.get_shape()
-        self.frame.setRect(0, 0, h, w)
-        # img 追加（クリックするのに必要）
-        pseudo_image2d = np.zeros((h, w))
-        self.map_img.setImage(pseudo_image2d)
-        self.map_img.hide()
-        self.img_view_box.autoRange()
+        if b"map_x" in spc_file.log_dict.keys():
+            # 枠追加
+            w, h = spc_file.get_shape()
+            self.frame.setRect(0, 0, h, w)
+            # img 追加（クリックするのに必要）
+            pseudo_image2d = np.zeros((h, w))
+            self.map_img.setImage(pseudo_image2d)
+            self.map_img.hide()
+            self.img_view_box.autoRange()
     # Image2D インスタンスを渡された場合
     def display_map(self, image2D):
         # そもそもイメージがまだ無ければ、イメージを追加する

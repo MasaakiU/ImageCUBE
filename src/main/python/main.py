@@ -314,7 +314,6 @@ class MainWindow(QMainWindow):
 
                             # 開いていない場合、もしくは一度間違って指定してしまった場合、サイズを指定する必要がある
                             if (b"[map_size]" not in spc_file.log_other) or resize:
-                                # size_popup = popups.SizeSettingsPopup(parent=self, fnsub=spc_file.fnsub)
                                 size_popup = popups.SizeSettingsPopup(parent=self, spc_file=spc_file)
                                 done = size_popup.exec_()
                                 # ちゃんとサイズ指定できたとき

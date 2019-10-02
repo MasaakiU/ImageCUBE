@@ -20,70 +20,7 @@ from PyQt5.QtWidgets import (
 from . import draw
 from . import general_functions as gf
 
-# # map画像を開くときにサイズを決めなくてはならない
-# class SizeSettingsPopup_(QDialog):
-#     def __init__(self, parent=None, fnsub=None):
-#         self.fnsub = fnsub
-#         # スピンボックス
-#         self.spbx_size_x = QSpinBox()
-#         self.spbx_size_y = QSpinBox()
-#         self.spbx_size_x.setMinimum(1)
-#         self.spbx_size_x.setMaximum(10000)
-#         self.spbx_size_y.setMinimum(1)
-#         self.spbx_size_y.setMaximum(10000)
-#         self.spbx_size_x.valueChanged.connect(self.size_changed)
-#         self.spbx_size_y.valueChanged.connect(self.size_changed)
-#         # ボタン
-#         self.btnOK = QPushButton("OK")
-#         btnCancel = QPushButton("cancel")
-#         self.btnOK.clicked.connect(self.pressedOK)
-#         btnCancel.clicked.connect(self.pressedCancel)
-#         self.btnOK.setEnabled(False)
-#         # 答え
-#         self.x_by_y = QLabel("1")
-#         # レイアウト
-#         mini_layout1 = QHBoxLayout()
-#         mini_layout2 = QHBoxLayout()
-#         mini_layout3 = QHBoxLayout()
-#         mini_layout1.addWidget(self.spbx_size_y)
-#         mini_layout1.addWidget(QLabel("x"))
-#         mini_layout1.addWidget(self.spbx_size_x)
-#         mini_layout1.addWidget(QLabel("="))
-#         mini_layout1.addWidget(self.x_by_y)
-#         mini_layout2.addWidget(QLabel("map_size: %d"%self.fnsub))
-#         mini_layout3.addWidget(self.btnOK)
-#         mini_layout3.addWidget(btnCancel)
-#         layout = QVBoxLayout()
-#         layout.addLayout(mini_layout1)
-#         layout.addLayout(mini_layout2)
-#         layout.addLayout(mini_layout3)
-#         super().__init__(parent)
-#         self.setLayout(layout)
-#         self.setGeometry(QtCore.QRect(100, 100, 200, 100))
-#         self.setWindowTitle("Size Settings")
-#         # 設定
-#         p = self.palette()
-#         p.setColor(self.backgroundRole(), Qt.white)
-#         self.setPalette(p)
-#     # スピンボックスの値が変更された時
-#     def size_changed(self,event):
-#         x = self.spbx_size_x.value()
-#         y = self.spbx_size_y.value()
-#         ans = x * y
-#         self.x_by_y.setText(str(ans))
-#         if ans == self.fnsub:
-#             self.btnOK.setEnabled(True)
-#         else:
-#             self.btnOK.setEnabled(False)
-#     # "x by y" のサイズが一致しているかどうかはspinboxに値が入力された時点で逐一チェックしている
-#     def pressedOK(self):
-#         self.done(1)
-
-#     def pressedCancel(self):
-#         self.done(0)
-
-
-# 進化版：map画像を最初に開くときにサイズを決めなくてはならない
+# map画像を最初に開くときにサイズを決めなくてはならない
 class SizeSettingsPopup(QDialog):
     def __init__(self, spc_file=None, parent=None):
         self.spc_file = spc_file

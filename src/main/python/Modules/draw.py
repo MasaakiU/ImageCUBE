@@ -693,7 +693,7 @@ class ToolbarLayout(QVBoxLayout):
         if b'cosmic_ray_locs' not in self.parent.spectrum_widget.spc_file.log_dict:
             return file_path, "CRR not set"
         if ask:
-            warning_popup = popups.WarningPopup("Are you really sure to clear or update detected cosmic rays?", title="warning", p_type="Bool")
+            warning_popup = popups.WarningPopup("Cosmic rays are already detected.\nAre you really sure to modify them?", title="warning", p_type="Bool")
             done = warning_popup.exec_()
             if done == 65536:
                 return None, "CRR clear canceled"
@@ -1599,6 +1599,12 @@ class MapWidget(pg.GraphicsLayoutWidget):
             self.map_img.setImage(pseudo_image2d)
             self.map_img.hide()
             self.img_view_box.autoRange()
+<<<<<<< HEAD
+=======
+        # サイズ調節しなくてはいけない window の場合
+        else:
+            pass
+>>>>>>> ad72cbb... ver 0.5.3
     # Image2D インスタンスを渡された場合
     def display_map(self, image2D):
         # そもそもイメージがまだ無ければ、イメージを追加する

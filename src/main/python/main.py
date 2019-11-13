@@ -444,36 +444,46 @@ class MainWindow(QMainWindow):
     def set_spectrum_x_range(self):
         x_range, y_range = self.current_focused_window.spectrum_widget.viewRange()
         cur_x1, cur_x2 = x_range
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x1, cur_x2], labels=("left", "right"), title="set spectrum x range", ckbx_message=" FULL")
+        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x1, cur_x2], labels=("left", "right"), title="set spectrum x range", ckbx_messages=[" FULL", " propagate to all"])
         done = size_setting_popup.exec_()
         if not done:
             return
-        if size_setting_popup.ckbx.isChecked() == False:
-            x1 = size_setting_popup.spbx_RS1.value()
-            x2 = size_setting_popup.spbx_RS2.value()
-            self.current_focused_window.spectrum_widget.setXRange(x1, x2, padding=0)
-        # オート
+        if size_setting_popup.ckbxes[1].isChecked():
+            window_list = self.get_windows(window_types=["u", "s", "ms"])
         else:
-            x1, x2 = np.sort(self.current_focused_window.spectrum_widget.spc_file.x[[0, -1]])
-            self.current_focused_window.spectrum_widget.setXRange(x1, x2)
+            window_list = [self.current_focused_window]
+        for window in window_list:
+            if not size_setting_popup.ckbxes[0].isChecked():
+                x1 = size_setting_popup.spbx_RS1.value()
+                x2 = size_setting_popup.spbx_RS2.value()
+                window.spectrum_widget.setXRange(x1, x2, padding=0)
+            # オート
+            else:
+                x1, x2 = np.sort(window.spectrum_widget.spc_file.x[[0, -1]])
+                window.spectrum_widget.setXRange(x1, x2)
     @ process_opened_window
     def set_spectrum_y_range(self):
         x_range, y_range = self.current_focused_window.spectrum_widget.viewRange()
         cur_y1, cur_y2 = y_range
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_y1, cur_y2], labels=("top", "bottom"), title="set spectrum y range", ckbx_message=" AUTO")
+        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_y1, cur_y2], labels=("top", "bottom"), title="set spectrum y range", ckbx_messages=[" AUTO", " propagate to all"])
         done = size_setting_popup.exec_()
         if not done:
             return
-        if size_setting_popup.ckbx.isChecked() == False:
-            y1 = size_setting_popup.spbx_RS1.value()
-            y2 = size_setting_popup.spbx_RS2.value()
-            self.current_focused_window.spectrum_widget.setYRange(y1, y2, padding=0)
-        # オート
+        if size_setting_popup.ckbxes[1].isChecked():
+            window_list = self.get_windows(window_types=["u", "s", "ms"])
         else:
-            xData = self.current_focused_window.spectrum_widget.master_spectrum.xData
-            yData = self.current_focused_window.spectrum_widget.master_spectrum.yData
-            y1, y2 = gf.get_local_minmax(xData, yData, x_range)
-            self.current_focused_window.spectrum_widget.setYRange(y1, y2)
+            window_list = [self.current_focused_window]
+        for window in window_list:
+            if not size_setting_popup.ckbxes[0].isChecked():
+                y1 = size_setting_popup.spbx_RS1.value()
+                y2 = size_setting_popup.spbx_RS2.value()
+                window.spectrum_widget.setYRange(y1, y2, padding=0)
+            # オート
+            else:
+                xData = window.spectrum_widget.master_spectrum.xData
+                yData = window.spectrum_widget.master_spectrum.yData
+                y1, y2 = gf.get_local_minmax(xData, yData, x_range)
+                window.spectrum_widget.setYRange(y1, y2)
     @ process_opened_window
     def reset_map_view(self):
         self.current_focused_window.map_widget.img_view_box.autoRange()
@@ -481,24 +491,29 @@ class MainWindow(QMainWindow):
     def jump_to_map_loc(self):
         cur_x = self.current_focused_window.spectrum_widget.cur_x
         cur_y = self.current_focused_window.spectrum_widget.cur_y
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x, cur_y], labels=("x", "y"), title="set position", double=False, ckbx_message=" MAX INTENSITY")
+        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x, cur_y], labels=("x", "y"), title="set position", double=False, ckbx_messages=[" MAX INTENSITY", " propagate to all"])
         done = size_setting_popup.exec_()
         if not done:
             return
-        cur_image2d = self.current_focused_window.map_widget.get_cur_image2d()
-        if size_setting_popup.ckbx.isChecked() == False:
-            x = size_setting_popup.spbx_RS1.value()
-            y = size_setting_popup.spbx_RS2.value()
-            if (cur_image2d.shape[0] <= y) or (cur_image2d.shape[1] <= x):
-                warning_popup = popups.WarningPopup("The value exceeds the image size.")
-                warning_popup.exec_()
-                self.jump_to_map_loc(compatible_window_types=["ms"])
-                return
-        # オート
+        if size_setting_popup.ckbxes[1].isChecked():
+            window_list = self.get_windows(window_types=["ms"])
         else:
-            y, x = np.unravel_index(np.argmax(cur_image2d), cur_image2d.shape)
-        self.current_focused_window.spectrum_widget.replace_spectrum(x, y)
-        self.current_focused_window.map_widget.set_crosshair(x, y)
+            window_list = [self.current_focused_window]
+        for window in window_list:
+            cur_image2d = window.map_widget.get_cur_image2d()
+            if size_setting_popup.ckbxes[0].isChecked() == False:
+                x = size_setting_popup.spbx_RS1.value()
+                y = size_setting_popup.spbx_RS2.value()
+                if (cur_image2d.shape[0] <= y) or (cur_image2d.shape[1] <= x):
+                    warning_popup = popups.WarningPopup("The value exceeds the image size.")
+                    warning_popup.exec_()
+                    self.jump_to_map_loc(compatible_window_types=["ms"])
+                    return
+            # オート
+            else:
+                y, x = np.unravel_index(np.argmax(cur_image2d), cur_image2d.shape)
+            window.spectrum_widget.replace_spectrum(x, y)
+            window.map_widget.set_crosshair(x, y)
     # PreProcess
     @ process_opened_window
     def menu_crr(self):
@@ -582,6 +597,13 @@ class MainWindow(QMainWindow):
             error_log = traceback.format_exc()
             warning_popup = popups.WarningPopup(error_log)
             warning_popup.exec_()
+    # window取得
+    def get_windows(self, window_types):
+        windows = []
+        for window in self.child_window_list:
+            if window.window_type in window_types:
+                windows.append(window)
+        return windows
     # フォーカスイベント処理
     def focusInEvent(self, event):
         print("main focused")

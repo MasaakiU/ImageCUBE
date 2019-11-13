@@ -161,18 +161,22 @@ class CfpSettingsPopup(RangeSettingsPopup):
                 self.isValueChanged = True
 
 class RangeSettingsPopupWithCkbx(RangeSettingsPopup):
-    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, ckbx_message=""):
+    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, ckbx_messages=[]):
         super().__init__(parent, initial_values, labels, title, double)
-        self.ckbx = QCheckBox()
-        self.spbx_layout.addRow(self.ckbx, QLabel(ckbx_message))
-        self.ckbx.stateChanged.connect(self.ckbx_state_changed)
-    def ckbx_state_changed(self, event):
-        if event == 2:
-            self.spbx_RS1.setEnabled(False)
-            self.spbx_RS2.setEnabled(False)
-        elif event == 0:
-            self.spbx_RS1.setEnabled(True)
-            self.spbx_RS2.setEnabled(True)
+        self.ckbxes = []
+        for i, ckbx_message in enumerate(ckbx_messages):
+            ckbx = QCheckBox()
+            ckbx.stateChanged.connect(functools.partial(self.ckbx_state_changed, ckbx_idx = i))
+            self.ckbxes.append(ckbx)
+            self.spbx_layout.addRow(ckbx, QLabel(ckbx_message))
+    def ckbx_state_changed(self, event, ckbx_idx):
+        if ckbx_idx == 0:
+            if event == 2:
+                self.spbx_RS1.setEnabled(False)
+                self.spbx_RS2.setEnabled(False)
+            elif event == 0:
+                self.spbx_RS1.setEnabled(True)
+                self.spbx_RS2.setEnabled(True)
 
 class ValueSettingsPopup(QDialog):
     def __init__(self, parent=None, initial_value=gf.value_settings_popups_init, label="enter value", title="", double=True):
@@ -307,7 +311,7 @@ class ProgressBarWidget(QWidget):
             event.accept()
         else:
             event.ignore()
-            
+
 
 # class BoolMessagePopup(QMessageBox):
 #     def __init__(self, message, title=None)

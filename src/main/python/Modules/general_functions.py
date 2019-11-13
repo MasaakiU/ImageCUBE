@@ -42,7 +42,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.5.3"
+ver = "0.5.4"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -880,7 +880,8 @@ class SpcLike(spc.File):
     def save_as_spc(self, save_path):
         # data block
         datablock_binary = b""
-        for sub in self.sub:
+        for i, sub in enumerate(self.sub):
+            print(i)
             subfile_binary = sub.toBinary()
             datablock_binary += subfile_binary
             # update flogoff

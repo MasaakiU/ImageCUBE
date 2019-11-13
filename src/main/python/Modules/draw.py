@@ -99,16 +99,6 @@ class AddedContent_RepresentativeCFP(AddedContent_Spectrum):
         self.allowed_btn_list.remove("export")
     def focus_unfocus(self, focused):
         self.focused = focused
-class AddedContent_SubtractedSpectrums(AddedContent_Spectrum):
-    def __init__(self, item, info=None, parent_window=None):
-        super().__init__(item, info, parent_window)
-        self.CLASS = "SubtractedSpectrums"
-    def update_spectrum(self, sub_idx, original_spc_file):
-        master_x_list1, subtracted_y_list = self.info["data"].get_data(sub_idx, original_spc_file)
-        self.item.setData(master_x_list1, subtracted_y_list)
-    def export_spectrum(self):
-        warning_popup = popups.WarningPopup("The function is not supported yet.")
-        warning_popup.exec_()
 class AddedContent_Map(AddedContent):
     def __init__(self, item, info, parent_window):
         super().__init__(item, info, parent_window)
@@ -156,22 +146,12 @@ class AddedContent_Unmixed(AddedContent_Map):
     def __init__(self, item, info, parent_window):
         super().__init__(item, info, parent_window)
     def focus_unfocus(self, focused):
+        super().focus_unfocus(focused)
         self.focused = focused
         if self.focused:
-            self.parent_window.cur_displayed_map_info = self.info
-            self.parent_window.map_widget.display_map(self.item)
-            self.parent_window.spectrum_widget.display_map_spectrum()
             if self.info["spectrum_hidden"]:
-                self.parent_window.spectrum_widget.hide_all_fill_btwn_items()
-                self.parent_window.spectrum_widget.hide_all_lines()
                 self.parent_window.spectrum_widget.additional_lines[self.info["data"].n_th_components[0]].show()
                 self.parent_window.spectrum_widget.additional_lines[-2].show()  # baseline
-        else:
-            self.parent_window.map_widget.map_img.hide()
-            self.parent_window.cur_displayed_map_info = None
-            self.parent_window.spectrum_widget.hide_all_fill_btwn_items()
-            self.parent_window.spectrum_widget.hide_all_lines()
-            self.info["spectrum_hidden"] = False
     def hide_show_item(self):
         line_item = self.parent_window.spectrum_widget.additional_lines[self.info["data"].n_th_components[0]]
         fill_btwn_item = self.parent_window.spectrum_widget.additional_fill_btwn_items[0]
@@ -201,6 +181,19 @@ class AddedContent_Unmixed(AddedContent_Map):
         self.parent_window.spectrum_widget.set_N_additional_lines(0)
         self.parent_window.spectrum_widget.set_N_additional_fill_btwn_items(0)
         return idxes_to_remove
+class AddedContent_SubtractedSpectrums(AddedContent_Map):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+        self.CLASS = "SubtractedSpectrums"
+    def hide_show_item(self):
+        isVisible = self.parent_window.spectrum_widget.additional_fill_btwn_items[0].isVisible()
+        if isVisible:
+            exe = "hide"
+        else:
+            exe = "show"
+        self.info["spectrum_hidden"] = isVisible
+        function = getattr(self.parent_window.spectrum_widget, "%s_all_fill_btwn_items"%exe)
+        function()
 
 # class containing information about spectrum unmixing
 class UnmixedData():
@@ -223,7 +216,8 @@ class UnmixedData():
             baseline_drift_right = (self.umx_y_matrix[-1, 1:] * self.umx_h_matrix[sub_idx, 1:]).sum()
             return pg.PlotDataItem([self.umx_x_list[0], self.umx_x_list[-1]], [baseline_drift_left, baseline_drift_right])
 class SubtractedData():
-    def __init__(self, x_minmax1, master_x_list1, added_y_list1, umx_h_list):
+    def __init__(self, abs_id, x_minmax1, master_x_list1, added_y_list1, umx_h_list):
+        self.abs_id = abs_id
         self.x_minmax1 = x_minmax1
         self.master_x_list1 = master_x_list1
         self.added_y_list1 = added_y_list1
@@ -232,7 +226,8 @@ class SubtractedData():
         original_x_data, original_y_data = original_spc_file.get_data(self.x_minmax1[0], self.x_minmax1[1], sub_idx=sub_idx)
         subtracted_y_list = original_y_data + self.added_y_list1 * self.umx_h_list[sub_idx]
         return self.master_x_list1, subtracted_y_list
-
+    def get_btm_curves(self):
+        return pg.PlotDataItem([self.master_x_list1[0], self.master_x_list1[-1]], [0, 0])
 # スペクトル操作ツールバー
 class ToolbarLayout(QVBoxLayout):
     def __init__(self, window_type, parent=None):
@@ -643,6 +638,28 @@ class ToolbarLayout(QVBoxLayout):
             # 次回用に保存
             gf.settings["method dir"] = os.path.dirname(file_path)
             gf.save_settings_file()
+    def execute_spectrum_linear_subtraction(self):
+        # チェック
+        added_content_list = [added_spectrum_info for added_spectrum_info in self.added_spectrum_info_list 
+            if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
+        if len(added_content_list) > 1 or len(added_content_list) == 0:
+            # v2 に表示されてるスペクトルが無ければ無効
+            warning_popup = popups.WarningPopup("Exactly 1 added spectrum (blue spectrum) should be displayed!")
+            warning_popup.exec_()
+            return
+        range_settings_popup = popups.RangeSettingsPopup(parent=self.parent, initial_values=(250, 450), title="set reference range")
+        done = range_settings_popup.exec_()
+        sRS = range_settings_popup.spbx_RS1.value()
+        eRS = range_settings_popup.spbx_RS2.value()
+        # スペクトルオンリーデータの場合
+        if self.parent.spectrum_widget.spc_file.fnsub == done == 1:
+            self.parent.spectrum_widget.spectrum_linear_subtraction(sRS, eRS)
+        # マップイメージの場合
+        elif self.parent.spectrum_widget.spc_file.fnsub > 1 and done == 1:
+            self.parent.spectrum_widget.multi_spectrum_linear_subtraction(sRS, eRS)
+            # スペクトル更新
+            self.parent.spectrum_widget.replace_spectrum(0, 0)
+            self.parent.map_widget.set_crosshair(0, 0)
     # 宇宙線除去
     def cosmic_ray_removal(self, ask=True):
         # 既に一度書かれていたら、一度 CRR を削除
@@ -836,43 +853,6 @@ class ToolbarLayout(QVBoxLayout):
         file_path = os.path.join(dir_path, file_name)
         # 大元のバイナリファイルを上書き（ついでに、現在の spc_file にcfp_xなども追加します）
         self.parent.spectrum_widget.spc_file.set_cfp(file_path, cfp_x, cfp_y)
-    # # スペクトル計算（引き算）
-    # def execute_launch_spectrum_calculator(self):
-    #     # 追加されてるスペクトルが無ければ無効
-    #     if len(self.parent.spectrum_widget.vb2.addedItems) == 0:
-    #         warning_popup = popups.WarningPopup("Added spectrum is required!")
-    #         warning_popup.exec_()
-    #     else:
-    #         spectrum_calculator = popups.RangeSettingsPopup(parent=self.parent, initial_values=(3600, 4700), title="set reference range")
-    #         done = spectrum_calculator.exec_()
-    #         if done == 1:
-    #             sRS = spectrum_calculator.spbx_RS1.value()
-    #             eRS = spectrum_calculator.spbx_RS2.value()
-    #             self.parent.spectrum_widget.nnls_subtract_spectrum(sRS, eRS)
-    #             # スペクトル描画
-    #             self.parent.spectrum_widget.add_calculated_spectrum()
-    def execute_spectrum_linear_subtraction(self):
-        # チェック
-        added_content_list = [added_spectrum_info for added_spectrum_info in self.added_spectrum_info_list 
-            if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
-        if len(added_content_list) > 1 or len(added_content_list) == 0:
-            # v2 に表示されてるスペクトルが無ければ無効
-            warning_popup = popups.WarningPopup("Exactly 1 added spectrum (blue spectrum) should be displayed!")
-            warning_popup.exec_()
-            return
-        range_settings_popup = popups.RangeSettingsPopup(parent=self.parent, initial_values=(250, 450), title="set reference range")
-        done = range_settings_popup.exec_()
-        sRS = range_settings_popup.spbx_RS1.value()
-        eRS = range_settings_popup.spbx_RS2.value()
-        # スペクトルオンリーデータの場合
-        if self.parent.spectrum_widget.spc_file.fnsub == done == 1:
-            self.parent.spectrum_widget.spectrum_linear_subtraction(sRS, eRS)
-        # マップイメージの場合
-        elif self.parent.spectrum_widget.spc_file.fnsub > 1 and done == 1:
-            self.parent.spectrum_widget.multi_spectrum_linear_subtraction(sRS, eRS)
-            # スペクトル描画
-            self.parent.spectrum_widget.replace_spectrum(0, 0)
-            self.parent.map_widget.set_crosshair(0, 0)
     def save_spectrum(self):
         # 保存先の状況をチェック
         dir_path = self.parent.dir_path
@@ -1025,12 +1005,12 @@ class SpectrumWidget(pg.PlotWidget):
             # umx_methodから呼ばれたときは、background を設定する際、mapを指定せずにreplace_spectrumするので、これが呼ばれてしまう。
             return
         values = self.parent.cur_displayed_map_info["values"]
+        sub_idx = self.spc_file.get_sub_idx(self.cur_x, self.cur_y)
         if self.parent.cur_displayed_map_info["type"] == "unmixed":
             # ここから登録作業開始
             umx_data = self.parent.cur_displayed_map_info["data"]
             # draw all unmixed lines
             self.set_N_additional_lines(umx_data.n_th_components[1])
-            sub_idx = self.spc_file.get_sub_idx(self.cur_x, self.cur_y)
             total_y_list = np.zeros_like(umx_data.umx_x_list)
             for added_content in self.parent.toolbar_layout.added_map_info_list:
                 if added_content.info["type"] != "unmixed":
@@ -1046,6 +1026,7 @@ class SpectrumWidget(pg.PlotWidget):
                         )
                     self.additional_lines[idx].show()
                     total_y_list += added_content.info["data"].get_first_data(sub_idx)
+                # when it is the total signal
                 else:
                     umx_data_total = added_content.info["data"]
             # calc total signal # total signal が未設定の場合でも、added_map_info_list に追加された時点で display_map_specrum が走っちゃうので、例外処理
@@ -1062,6 +1043,21 @@ class SpectrumWidget(pg.PlotWidget):
                 self.additional_fill_btwn_items[0].show()
             except:
                 pass
+        elif self.parent.cur_displayed_map_info["type"] == "subtracted multiple":
+            # ここから登録作業開始
+            subtraction_data = self.parent.cur_displayed_map_info["data"]
+            master_x_list1, subtracted_y_list = subtraction_data.get_data(sub_idx, self.spc_file)
+            # draw a subtracted line
+            self.set_N_additional_lines(1)
+            self.additional_lines[0].setData(
+                master_x_list1, 
+                subtracted_y_list
+            )
+            self.additional_lines[0].show()            
+            # fill between item
+            self.set_N_additional_fill_btwn_items(1)
+            self.additional_fill_btwn_items[0].setCurves(subtraction_data.get_btm_curves(), self.additional_lines[0])
+            self.additional_fill_btwn_items[0].show()
         elif self.parent.cur_displayed_map_info["type"] == "added":
             RS_idx1 = self.spc_file.get_idx(values[0])
             if len(values) == 1:
@@ -1077,12 +1073,12 @@ class SpectrumWidget(pg.PlotWidget):
                 RS_idx2 = self.spc_file.get_idx(values[1])
                 RS_idx1, RS_idx2 = np.sort([RS_idx1, RS_idx2])
                 x_value2 = self.spc_file.x[RS_idx2]
-                y_value_list = self.spc_file.sub[self.spc_file.get_sub_idx(self.cur_x, self.cur_y)].y[RS_idx1:RS_idx2+1]
+                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2+1]
                 fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2+1], y_value_list)
             x_value1 = self.spc_file.x[RS_idx1]
             # set graph
             if self.parent.cur_displayed_map_info["detail"] == "signal_intensity":
-                y_value1 = self.spc_file.sub[self.spc_file.get_sub_idx(self.cur_x, self.cur_y)].y[RS_idx1]
+                y_value1 = self.spc_file.sub[sub_idx].y[RS_idx1]
                 self.additional_lines[0].setData([x_value1, x_value1], [0, y_value1])
             elif self.parent.cur_displayed_map_info["detail"] == "signal_to_baseline":
                 y_value1 = y_value_list[0]
@@ -1129,10 +1125,6 @@ class SpectrumWidget(pg.PlotWidget):
             self.added_items_dict["CRR items"].setData(x=crr_x_list, y=crr_y_list, connect=crr_connection)
         else:
             self.added_items_dict["CRR items"].setData()
-        # spectrum info
-        for added_content in self.parent.toolbar_layout.added_spectrums_info_list:
-            if added_content.info["type"] == "subtracted multiple":
-                added_content.update_spectrum(sub_idx, original_spc_file=self.spc_file)
     # map画像作成
     def signal_intensity(self, RS):
         RS_idx = self.spc_file.get_idx(RS)
@@ -1145,14 +1137,13 @@ class SpectrumWidget(pg.PlotWidget):
         sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
         half_RS_width = np.absolute(self.spc_file.x[eRS_idx] - self.spc_file.x[sRS_idx]) / 2
         selected_RS_diff_list_half = np.absolute(np.diff(self.spc_file.x[sRS_idx:eRS_idx + 1])) / 2
-        area_values_list = []
+        area_values_list = np.empty(self.spc_file.fnsub, dtype=float)
         for sub_idx in range(self.spc_file.fnsub):
             selected_data = self.spc_file.sub[sub_idx].y[sRS_idx:eRS_idx + 1]
             raw_area = ((selected_data[1:] + selected_data[:-1]) * selected_RS_diff_list_half).sum()
             bg_area = np.absolute(selected_data[0] + selected_data[-1]) * half_RS_width
-            area_value = raw_area - bg_area
-            area_values_list.append(area_value)
-        image2d = np.reshape(area_values_list, self.spc_file.get_shape()).T
+            area_values_list[sub_idx] = raw_area - bg_area
+        image2d = area_values_list.reshape(self.spc_file.get_shape()).T
         image2D = Image2D(image2d, name="signal_to_baseline_%d-%d"%(sRS, eRS))
         return image2D
     def signal_to_h_bl(self, sRS, eRS):
@@ -1160,14 +1151,13 @@ class SpectrumWidget(pg.PlotWidget):
         sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
         RS_width = np.absolute(self.spc_file.x[eRS_idx] - self.spc_file.x[sRS_idx])
         selected_RS_diff_list_half = np.absolute(np.diff(self.spc_file.x[sRS_idx:eRS_idx + 1])) / 2
-        area_values_list = []
+        area_values_list = np.empty(self.spc_file.fnsub, dtype=float)
         for sub_idx in range(self.spc_file.fnsub):
             selected_data = self.spc_file.sub[sub_idx].y[sRS_idx:eRS_idx + 1]
             raw_area = ((selected_data[1:] + selected_data[:-1]) * selected_RS_diff_list_half).sum()
             bg_area = np.min(selected_data) * RS_width
-            area_value = raw_area - bg_area
-            area_values_list.append(area_value)
-        image2d = np.reshape(area_values_list, self.spc_file.get_shape()).T
+            area_values_list[sub_idx] = raw_area - bg_area
+        image2d = area_values_list.reshape(self.spc_file.get_shape()).T
         image2D = Image2D(image2d, name="signal_to_H_baseline_%d-%d"%(sRS, eRS))
         return image2D
     def signal_to_axis(self, sRS, eRS):
@@ -1175,12 +1165,11 @@ class SpectrumWidget(pg.PlotWidget):
         sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
         # RS_width = np.absolute(self.spc_file.x[eRS_idx] - self.spc_file.x[sRS_idx])
         selected_RS_diff_list_half = np.absolute(np.diff(self.spc_file.x[sRS_idx:eRS_idx + 1])) / 2
-        area_values_list = []
+        area_values_list = np.empty(self.spc_file.fnsub, dtype=float)
         for sub_idx in range(self.spc_file.fnsub):
             selected_data = self.spc_file.sub[sub_idx].y[sRS_idx:eRS_idx + 1]
-            raw_area = ((selected_data[1:] + selected_data[:-1]) * selected_RS_diff_list_half).sum()
-            area_values_list.append(raw_area)
-        image2d = np.reshape(area_values_list, self.spc_file.get_shape()).T
+            area_values_list[sub_idx] = ((selected_data[1:] + selected_data[:-1]) * selected_RS_diff_list_half).sum()
+        image2d = area_values_list.reshape(self.spc_file.get_shape()).T
         image2D = Image2D(image2d, name="signal_to_axis_%d-%d"%(sRS, eRS))
         return image2D
     # def curve_fitting(self, sRS, eRS):
@@ -1401,15 +1390,16 @@ class SpectrumWidget(pg.PlotWidget):
                 if 65536:
                     save_path = None
         if save_path:
-            # subフィアル作成
-            sub_like = gf.SubLike()
-            sub_like.init_fmt(self.spc_file.sub[0])
-            sub_like.add_data(item.yData, sub_idx=0)
-            # spc_like フィアル作成・保存
             spc_like = gf.SpcLike()
             spc_like.init_fmt(self.spc_file)
             spc_like.add_xData(item.xData)
-            spc_like.add_subLike(sub_like)
+            for sub_idx in range(self.spc_file.fnsub):
+                # subフィアル作成
+                sub_like = gf.SubLike()
+                sub_like.init_fmt(self.spc_file.sub[sub_idx])
+                sub_like.add_data(item.yData, sub_idx=sub_idx)
+                # 追加
+                spc_like.add_subLike(sub_like)
             spc_like.save_as_spc(save_path=save_path)
     # メソッドとして保存する。vb2の中身を保存するようになっているが、UnmixingMethodWindow内にしかこれを呼び出すボタンが無い（今の所）。
     def save_as_method(self, save_path):
@@ -1427,50 +1417,6 @@ class SpectrumWidget(pg.PlotWidget):
         # 保存
         with open(save_path, 'wb') as f:
             pickle.dump(UMX, f)
-    # self.spectrum_linear_subtraction の map 用 version.
-    def multi_spectrum_linear_subtraction(self, sRS, eRS):
-        # プログレスバー処理
-        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Subtracting spectrum... please wait.")
-        self.pbar_widget.show()
-        segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
-        QCoreApplication.processEvents()
-        # 基本的情報
-        x_minmax1, x_minmax2, added_y_list1, added_y_list2, added_content = self.get_spectrum_linear_subtraction_basic_info(sRS, eRS)
-        umx_h_list = np.empty(self.spc_file.fnsub, dtype=float)
-        for idx in range(self.spc_file.fnsub):
-            master_x_list1, master_y_list1 = self.spc_file.get_data(x_minmax1[0], x_minmax1[1], sub_idx=idx)
-            master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=idx)
-            # 最小二乗
-            umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2)
-            umx_h_list[idx] = umx_h_value
-            # プログレスバー処理
-            if idx in segment_list:
-                self.pbar_widget.addValue(1)
-                QCoreApplication.processEvents()
-        # 追加
-        plot_data_item = pg.PlotDataItem(fillLevel=0, pen=gf.mk_u_pen())
-        self.plotItem.vb.addItem(plot_data_item)
-        subtracted_data = SubtractedData(
-            x_minmax1 = x_minmax1, 
-            master_x_list1 = master_x_list1, 
-            added_y_list1 = added_y_list1, 
-            umx_h_list = umx_h_list
-            )
-        self.parent.toolbar_layout.add_content(
-            plot_data_item, 
-            CLASS = "SubtractedSpectrums",
-            info={
-                "content":"spectrum", 
-                "type":"subtracted multiple", 
-                "detail":added_content.summary(), 
-                "values":[sRS, eRS], 
-                "data":subtracted_data
-                }, 
-            parent_window=self.parent
-        )
-        # プログレスバー閉じる
-        self.pbar_widget.is_close_allowed = True
-        self.pbar_widget.close()
     def get_spectrum_linear_subtraction_basic_info(self, sRS, eRS):
         # # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
         # sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
@@ -1495,6 +1441,62 @@ class SpectrumWidget(pg.PlotWidget):
         master_x_list2, master_y_list2 = self.spc_file.get_data(x_min2, x_max2)
         added_y_list2 = np.interp(master_x_list2, added_x_list, added_y_list)
         return (x_min1, x_max1), (x_min2, x_max2), added_y_list1, added_y_list2, added_content
+    # self.spectrum_linear_subtraction の map 用 version.
+    def multi_spectrum_linear_subtraction(self, sRS, eRS):
+        # プログレスバー処理
+        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Subtracting spectrum... please wait.")
+        self.pbar_widget.show()
+        segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
+        QCoreApplication.processEvents()
+        # 基本的情報
+        x_minmax1, x_minmax2, added_y_list1, added_y_list2, added_content = self.get_spectrum_linear_subtraction_basic_info(sRS, eRS)
+        x_min1_idx, x_max1_idx = np.sort([self.spc_file.get_idx(x_minmax1[0]), self.spc_file.get_idx(x_minmax1[1])])
+        master_x_list1, master_y_list1 = self.spc_file.get_data(x_minmax1[0], x_minmax1[1], sub_idx=0)
+        umx_h_list = np.empty(self.spc_file.fnsub, dtype=float)
+        # イメージ格納庫（全スペクトルの総和としてイメージを作成）
+        area_values_list = np.empty(self.spc_file.fnsub, dtype=float)
+        selected_RS_diff_list_half = np.absolute(np.diff(self.spc_file.x[x_min1_idx:x_max1_idx + 1])) / 2
+        to_subtract_base_value = ((added_y_list1[1:] + added_y_list1[:-1]) * selected_RS_diff_list_half).sum()
+        for idx in range(self.spc_file.fnsub):
+            master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=idx)
+            # 最小二乗
+            umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2)
+            umx_h_list[idx] = umx_h_value
+            area_values_list[idx] = ((self.spc_file.sub[idx].y[x_min1_idx + 1:x_max1_idx + 1] + self.spc_file.sub[idx].y[x_min1_idx:x_max1_idx]) \
+                                        * selected_RS_diff_list_half).sum() + to_subtract_base_value * umx_h_value
+            # プログレスバー処理
+            if idx in segment_list:
+                self.pbar_widget.addValue(1)
+                QCoreApplication.processEvents()
+        # 追加
+        image2d = area_values_list.reshape(self.spc_file.get_shape()).T
+        image2D = Image2D(image2d, name="subtracted_%d-%d"%(x_minmax2[0], x_minmax2[1]))
+        plot_data_item = pg.PlotDataItem(fillLevel=0, pen=gf.mk_u_pen())
+        self.plotItem.vb.addItem(plot_data_item)
+        # 描画用データ
+        subtraction_data = SubtractedData(
+            abs_id = self.abs_id, 
+            x_minmax1 = x_minmax1, 
+            master_x_list1 = master_x_list1, 
+            added_y_list1 = added_y_list1, 
+            umx_h_list = umx_h_list
+            )
+        self.parent.toolbar_layout.add_content(
+            image2D, 
+            CLASS = "SubtractedSpectrums",
+            info={
+                "content":"map", 
+                "type":"subtracted multiple", 
+                "detail":added_content.summary(), 
+                "values":[sRS, eRS], 
+                "data":subtraction_data
+                }, 
+            parent_window=self.parent
+        )
+        # プログレスバー閉じる
+        self.abs_id += 1
+        self.pbar_widget.is_close_allowed = True
+        self.pbar_widget.close()
     # 追加スペクトルが1本のみの場合に適用。指定された波数範囲において元スペクトルから、n倍した追加スペクトルを引き算し、なるべく直線に近づくような引き算をする。
     def spectrum_linear_subtraction(self, sRS, eRS):
         # 追加スペクトルの補間版（1はオリジナルと追加の共通部分、2はそれにsRS, eRSの共通部分も含めたもの）
@@ -1599,12 +1601,6 @@ class MapWidget(pg.GraphicsLayoutWidget):
             self.map_img.setImage(pseudo_image2d)
             self.map_img.hide()
             self.img_view_box.autoRange()
-<<<<<<< HEAD
-=======
-        # サイズ調節しなくてはいけない window の場合
-        else:
-            pass
->>>>>>> ad72cbb... ver 0.5.3
     # Image2D インスタンスを渡された場合
     def display_map(self, image2D):
         # そもそもイメージがまだ無ければ、イメージを追加する

@@ -41,7 +41,7 @@ class MapSpectTable(QWidget):
         map_area_layout = QVBoxLayout()
         map_area_layout.setContentsMargins(0,0,0,0)
         map_area_layout.setSpacing(0)
-        map_area_layout.addWidget(gf.QRichLabel("Map List", font=gf.boldFont))
+        map_area_layout.addWidget(gf.QRichLabel("Added Hyperspectral Data", font=gf.boldFont))
         map_area_layout.addWidget(map_scroll_area)
         # スペクトルエリア
         self.spectrum_layout = my_w.ClickableLayout(parent=self)
@@ -55,7 +55,7 @@ class MapSpectTable(QWidget):
         spectrum_area_layout = QVBoxLayout()
         spectrum_area_layout.setContentsMargins(0,0,0,0)
         spectrum_area_layout.setSpacing(0)
-        spectrum_area_layout.addWidget(gf.QRichLabel("Spectrum List", font=gf.boldFont))
+        spectrum_area_layout.addWidget(gf.QRichLabel("Added Spectrum Data", font=gf.boldFont))
         spectrum_area_layout.addWidget(spectrum_scroll_area)
         # マップボタンエリア
         self.btn_m_remove = QPushButton("remove")

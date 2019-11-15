@@ -58,6 +58,9 @@ class MapSpectTable(QWidget):
         spectrum_area_layout.addWidget(gf.QRichLabel("Added Spectrum Data", font=gf.boldFont))
         spectrum_area_layout.addWidget(spectrum_scroll_area)
         # マップボタンエリア
+        self.btn_m_export = QPushButton("export")
+        self.btn_m_export.setFixedWidth(100)
+        self.btn_m_export.setEnabled(False)
         self.btn_m_remove = QPushButton("remove")
         self.btn_m_remove.setFixedWidth(100)
         self.btn_m_remove.setEnabled(False)
@@ -67,9 +70,10 @@ class MapSpectTable(QWidget):
         btnLayout_m = QHBoxLayout()
         btnLayout_m.setContentsMargins(0,0,0,0)
         btnLayout_m.addStretch(1)
+        btnLayout_m.addWidget(self.btn_m_export)
         btnLayout_m.addWidget(self.btn_m_remove)
         btnLayout_m.addWidget(self.btn_m_hide_show)
-        self.btn_name_list_m = ["remove", "hide_show"]
+        self.btn_name_list_m = ["export", "remove", "hide_show"]
         # スペクトルボタンエリア
         self.btn_s_export = QPushButton("export")
         self.btn_s_export.setFixedWidth(100)
@@ -100,6 +104,7 @@ class MapSpectTable(QWidget):
         self.btn_s_export.clicked.connect(self.btn_export_clicked_s)
         self.btn_s_remove.clicked.connect(self.btn_remove_clicked_s)
         self.btn_s_hide_show.clicked.connect(self.btn_hide_show_clicked_s)
+        self.btn_m_export.clicked.connect(self.btn_export_clicked_m)
         self.btn_m_remove.clicked.connect(self.btn_remove_clicked_m)
         self.btn_m_hide_show.clicked.connect(self.btn_hide_show_clicked_m)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -167,6 +172,10 @@ class MapSpectTable(QWidget):
         if self.spectrum_layout.current_focused_idx is not None:
             cur_content_widget = self.spectrum_layout.get_current_item().widget()
             cur_content_widget.optional_item.hide_show_item()
+    def btn_export_clicked_m(self, event=None):
+        if self.map_layout.current_focused_idx is not None:
+            cur_content_widget = self.map_layout.get_current_item().widget()
+            cur_content_widget.optional_item.export_spectrum()
     def btn_remove_clicked_m(self, event=None):
         if self.map_layout.current_focused_idx is not None:
             cur_focused_window = self.map_layout.get_current_item().widget().optional_item.parent_window

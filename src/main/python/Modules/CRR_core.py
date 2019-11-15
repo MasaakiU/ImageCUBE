@@ -2,6 +2,7 @@
 
 import numpy as np
 from numpy.linalg import lstsq
+from scipy.signal import medfilt
 import copy
 
 from . import popups
@@ -77,10 +78,10 @@ def confirm_cosmic_ray(sub_center, sub_around_list, omitted_se_idx_set):
         if isProminent_list.all():
             selected_se_idx_set.append((s_idx, e_idx+1))    # 最初に e_idx-1してるので、戻す
     return selected_se_idx_set
-def locate_cosmic_ray(spc_file):
+def locate_cosmic_ray(spc_file, pbar=None, segment_list=None):
     x_size = int(spc_file.log_dict[b"map_x"])
     # y_size = int(spc_file.log_dict[b"map_y"])
-    candidate_cosmic_ray_locs = detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=gf.CRR_half_window2, SN=gf.CRR_SN)   # shape(fnsub, fnpts - 1)
+    candidate_cosmic_ray_locs = detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=gf.CRR_half_window2, SN=gf.CRR_SN, pbar=pbar, segment_list=segment_list)   # shape(fnsub, fnpts - 1)
     omitted_se_idx_set_list = []
     cosmic_ray_sub_idx_list = []
     # ±gf.half_window の範囲で discrete になっており、かつ diff>0, diff<0 がセットになっているようなものを探す
@@ -141,14 +142,17 @@ def locate_cosmic_ray(spc_file):
     #         # a = MainWindowFmTest(np.diff(spc_file.sub[sub_idx].y), spc_file.sub[sub_idx].y, [s, e])
     #         # a.exec_()
 
+
 # 太いCosmic Rayをしっかり検出できないかも。
-def detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=gf.CRR_half_window2, SN=gf.CRR_SN):
+def detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=gf.CRR_half_window2, SN=gf.CRR_SN, pbar=None, segment_list=None):
     data_set = gf.spc2ndarray(spc_file) # shape(fnsub, fnpts)
     ad_data_set = np.absolute(np.diff(data_set, axis=1))
-    ad_data_set_med = ttc.median_filter_axis1(ad_data_set, half_window=half_window1)
+    ad_data_set_med = ttc.median_filter_axis1(ad_data_set, half_window=half_window1, pbar=pbar, segment_list=segment_list)
     # ad_data_set_med = ttc.percentile_filter_axis1(ad_data_set, gf.CRR_percentile, half_window=half_window1)
     ad_data_set_max = ttc.max_filter_axis1(ad_data_set, half_window=half_window2)
+    pbar.addValue(1)
     ad_data_set_SN = ad_data_set_max / ad_data_set_med
+    pbar.addValue(1)
     return ad_data_set_SN > gf.CRR_SN    # shape(fnsub, fnpts - 1)
 
     # こちらを計算しなくても、ほとんど検出されたものが変わらない？

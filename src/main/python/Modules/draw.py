@@ -13,7 +13,6 @@ from PyQt5.QtWidgets import (
     QFileDialog, 
     )
 from PyQt5.QtCore import (
-    QCoreApplication, 
     QSize, 
     QRect, 
     QLineF, 
@@ -91,7 +90,16 @@ class AddedContent_Spectrum(AddedContent):
         self.parent_window.spectrum_widget.vb2.removeItem(self.item)
         self.parent_window.toolbar_layout.added_spectrum_info_list.remove(self)
     def export_spectrum(self, save_path=None, ask=True):
-        self.parent_window.spectrum_widget.save_spectrum_as_spc(self.item, save_path=save_path, ask=ask)
+        spc_like = gf.SpcLike()
+        spc_like.init_fmt(self.parent_window.spectrum_widget.spc_file)
+        spc_like.add_xData(self.item.xData)
+        # subフィアル作成
+        sub_like = gf.SubLike()
+        sub_like.init_fmt(self.parent_window.spectrum_widget.spc_file.sub[0])
+        sub_like.add_data(self.item.yData, sub_idx=0)
+        # 追加
+        spc_like.add_subLike(sub_like)
+        self.parent_window.spectrum_widget.save_spectrum_as_spc(spc_like, save_path=save_path, ask=ask)
 class AddedContent_RepresentativeCFP(AddedContent_Spectrum):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
@@ -184,6 +192,7 @@ class AddedContent_Unmixed(AddedContent_Map):
 class AddedContent_SubtractedSpectrums(AddedContent_Map):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
+        self.allowed_btn_list.append("export")
         self.CLASS = "SubtractedSpectrums"
     def hide_show_item(self):
         isVisible = self.parent_window.spectrum_widget.additional_fill_btwn_items[0].isVisible()
@@ -194,6 +203,19 @@ class AddedContent_SubtractedSpectrums(AddedContent_Map):
         self.info["spectrum_hidden"] = isVisible
         function = getattr(self.parent_window.spectrum_widget, "%s_all_fill_btwn_items"%exe)
         function()
+    def export_spectrum(self, save_path=None, ask=True):
+        spc_like = gf.SpcLike()
+        spc_like.init_fmt(self.parent_window.spectrum_widget.spc_file)
+        spc_like.add_xData(self.info["data"].master_x_list1)
+        added_y_list1 = self.info["data"].added_y_list1
+        for sub_idx, umx_h in enumerate(self.info["data"].umx_h_list):
+            # subフィアル作成
+            sub_like = gf.SubLike()
+            sub_like.init_fmt(self.parent_window.spectrum_widget.spc_file.sub[sub_idx])
+            sub_like.add_data(self.parent_window.spectrum_widget.spc_file.sub[sub_idx].y + added_y_list1 * umx_h, sub_idx=sub_idx)
+            # 追加
+            spc_like.add_subLike(sub_like)
+        self.parent_window.spectrum_widget.save_spectrum_as_spc(spc_like, save_path=save_path, ask=ask)
 
 # class containing information about spectrum unmixing
 class UnmixedData():
@@ -215,7 +237,7 @@ class UnmixedData():
             baseline_drift_left = (self.umx_y_matrix[0, 1:] * self.umx_h_matrix[sub_idx, 1:]).sum()
             baseline_drift_right = (self.umx_y_matrix[-1, 1:] * self.umx_h_matrix[sub_idx, 1:]).sum()
             return pg.PlotDataItem([self.umx_x_list[0], self.umx_x_list[-1]], [baseline_drift_left, baseline_drift_right])
-class SubtractedData():
+class SubtractionData():
     def __init__(self, abs_id, x_minmax1, master_x_list1, added_y_list1, umx_h_list):
         self.abs_id = abs_id
         self.x_minmax1 = x_minmax1
@@ -667,21 +689,17 @@ class ToolbarLayout(QVBoxLayout):
         if log == "CRR clear canceled":
             return
         # プログレスバー処理
-        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Detecting cosmic rays... please wait.")
-        self.pbar_widget.addValue(10)
+        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Detecting cosmic rays... please wait.", real_value_max=self.parent.spectrum_widget.spc_file.fnpts)
         self.pbar_widget.show()
-        QCoreApplication.processEvents()
+        segment_list = self.pbar_widget.get_segment_list(self.parent.spectrum_widget.spc_file.fnpts, segment=96)
         # 空間情報も含め、宇宙線を検出・除去する。
-        cosmic_ray_locs, CRR_params = crrc.locate_cosmic_ray(self.parent.spectrum_widget.spc_file)
+        cosmic_ray_locs, CRR_params = crrc.locate_cosmic_ray(self.parent.spectrum_widget.spc_file, pbar=self.pbar_widget, segment_list=segment_list)
         # 書き込むだけ（計算は既に終了している）オブジェクト中の data もアップデートされる（ただし元ファイル情報は保持したままである）
-        self.pbar_widget.addValue(50)
         self.pbar_widget.setLabel("Applying views...")
-        QCoreApplication.processEvents()
+        self.pbar_widget.addValue(1)
         self.parent.spectrum_widget.spc_file.CRR(file_path, cosmic_ray_locs, CRR_params)
         self.apply_CRR()
         # プログレスバー閉じる
-        self.pbar_widget.addValue(40)
-        QCoreApplication.processEvents()
         self.pbar_widget.is_close_allowed = True
         self.pbar_widget.close()
     def apply_CRR(self):
@@ -738,12 +756,10 @@ class ToolbarLayout(QVBoxLayout):
             done = 1
         if done:
             self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Noise reduction is in progress... please wait.")
-            self.pbar_widget.addValue(10)
             self.pbar_widget.show()
-            QCoreApplication.processEvents()
+            self.pbar_widget.addValue(10)
             nfc.PCA_based_NF(self.parent.spectrum_widget.spc_file, N_components=N_components)
             self.pbar_widget.addValue(90)
-            QCoreApplication.processEvents()
             self.pbar_widget.is_close_allowed = True
             self.pbar_widget.close()
 
@@ -1043,7 +1059,7 @@ class SpectrumWidget(pg.PlotWidget):
                 self.additional_fill_btwn_items[0].show()
             except:
                 pass
-        elif self.parent.cur_displayed_map_info["type"] == "subtracted multiple":
+        elif self.parent.cur_displayed_map_info["type"] == "subtracted":
             # ここから登録作業開始
             subtraction_data = self.parent.cur_displayed_map_info["data"]
             master_x_list1, subtracted_y_list = subtraction_data.get_data(sub_idx, self.spc_file)
@@ -1204,7 +1220,7 @@ class SpectrumWidget(pg.PlotWidget):
         # プログレスバー処理
         self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Executing spectrum unmising... please wait.")
         self.pbar_widget.show()
-        QCoreApplication.processEvents()
+        segment_list = self.pbar_widget.get_segment_list(self.spc_file.fnsub, 97)
         # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
         sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
         # 大元（unmixされる前のもの）は、spc_fileから情報を取得しよう（そのほうが楽だし…）
@@ -1247,7 +1263,6 @@ class SpectrumWidget(pg.PlotWidget):
         # non-negative least-square
         umx_height_matrix = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)
         rnorm_list = np.empty((self.spc_file.fnsub, 1), dtype=float)
-        segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
         for idx, sub in enumerate(self.spc_file.sub):
             master_y_list = sub.y[sRS_idx:eRS_idx + 1]
             x, rnorm = nnls(regional_y_matrix, master_y_list)
@@ -1256,7 +1271,6 @@ class SpectrumWidget(pg.PlotWidget):
             # プログレスバー処理
             if idx in segment_list:
                 self.pbar_widget.addValue(1)
-                QCoreApplication.processEvents()
         # 基本面積を乗じて面積を求める：最後の3つはまとめてベースラインとなっている➙和を取る：トータルのシグナルを最後に追加：rnorm_listも追加➙とりあえずしません！
         area_list_set = umx_height_matrix * basic_area_values[np.newaxis, :]
         area_list_set = np.concatenate((
@@ -1378,7 +1392,7 @@ class SpectrumWidget(pg.PlotWidget):
         tree = ET.ElementTree(element=root)
         tree.write(save_path, encoding='utf-8', xml_declaration=True)
     # spc形式でスペクトルを保存
-    def save_spectrum_as_spc(self, item, save_path=None, ask=True):
+    def save_spectrum_as_spc(self, spc_like, save_path=None, ask=True):
         # 保存先：ボタンについてる名前がデフォルトのファイル名になる
         if save_path is None:
             default_path = os.path.join(self.parent.dir_path, self.parent.file_name)
@@ -1390,16 +1404,6 @@ class SpectrumWidget(pg.PlotWidget):
                 if 65536:
                     save_path = None
         if save_path:
-            spc_like = gf.SpcLike()
-            spc_like.init_fmt(self.spc_file)
-            spc_like.add_xData(item.xData)
-            for sub_idx in range(self.spc_file.fnsub):
-                # subフィアル作成
-                sub_like = gf.SubLike()
-                sub_like.init_fmt(self.spc_file.sub[sub_idx])
-                sub_like.add_data(item.yData, sub_idx=sub_idx)
-                # 追加
-                spc_like.add_subLike(sub_like)
             spc_like.save_as_spc(save_path=save_path)
     # メソッドとして保存する。vb2の中身を保存するようになっているが、UnmixingMethodWindow内にしかこれを呼び出すボタンが無い（今の所）。
     def save_as_method(self, save_path):
@@ -1446,8 +1450,7 @@ class SpectrumWidget(pg.PlotWidget):
         # プログレスバー処理
         self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Subtracting spectrum... please wait.")
         self.pbar_widget.show()
-        segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
-        QCoreApplication.processEvents()
+        segment_list = self.pbar_widget.get_segment_list(self.spc_file.fnsub, segment=97)
         # 基本的情報
         x_minmax1, x_minmax2, added_y_list1, added_y_list2, added_content = self.get_spectrum_linear_subtraction_basic_info(sRS, eRS)
         x_min1_idx, x_max1_idx = np.sort([self.spc_file.get_idx(x_minmax1[0]), self.spc_file.get_idx(x_minmax1[1])])
@@ -1467,14 +1470,13 @@ class SpectrumWidget(pg.PlotWidget):
             # プログレスバー処理
             if idx in segment_list:
                 self.pbar_widget.addValue(1)
-                QCoreApplication.processEvents()
         # 追加
         image2d = area_values_list.reshape(self.spc_file.get_shape()).T
         image2D = Image2D(image2d, name="subtracted_%d-%d"%(x_minmax2[0], x_minmax2[1]))
         plot_data_item = pg.PlotDataItem(fillLevel=0, pen=gf.mk_u_pen())
         self.plotItem.vb.addItem(plot_data_item)
         # 描画用データ
-        subtraction_data = SubtractedData(
+        subtraction_data = SubtractionData(
             abs_id = self.abs_id, 
             x_minmax1 = x_minmax1, 
             master_x_list1 = master_x_list1, 
@@ -1486,7 +1488,7 @@ class SpectrumWidget(pg.PlotWidget):
             CLASS = "SubtractedSpectrums",
             info={
                 "content":"map", 
-                "type":"subtracted multiple", 
+                "type":"subtracted", 
                 "detail":added_content.summary(), 
                 "values":[sRS, eRS], 
                 "data":subtraction_data

@@ -25,6 +25,9 @@ from PyQt5.QtGui import (
     QColor, 
     QFont, 
     )
+from PyQt5.QtCore import (
+    QCoreApplication, 
+    )
 from PyQt5.QtWidgets import (
     QLabel, 
     QDialog, 
@@ -42,7 +45,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.5.4"
+ver = "0.5.5"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -878,14 +881,24 @@ class SpcLike(spc.File):
         with open(save_path, 'wb') as f:
             pickle.dump(self, f)
     def save_as_spc(self, save_path):
+        from . import popups
+        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Exporting spc file... please wait.        ")
+        self.pbar_widget.show()
+        segment_list = self.pbar_widget.get_segment_list(self.fnsub, segment=95)
+        QCoreApplication.processEvents()
         # data block
-        datablock_binary = b""
+        sub_str_all = "<"
+        sub_data_all = []
         for i, sub in enumerate(self.sub):
-            print(i)
-            subfile_binary = sub.toBinary()
-            datablock_binary += subfile_binary
-            # update flogoff
-            self.flogoff += len(datablock_binary)
+            sub_str, sub_data = sub.toPrepareBinary()
+            sub_str_all += sub_str
+            sub_data_all += sub_data
+            # プログレスバー処理
+            if i in segment_list:
+                self.pbar_widget.addValue(1)
+                QCoreApplication.processEvents()
+        datablock_binary = struct.pack(sub_str_all, *sub_data_all)
+        self.flogoff = len(datablock_binary) + 512  # main header の分
         # log block
         logblock_binary = self.logblock2binary()
         # main header block (512)
@@ -894,6 +907,9 @@ class SpcLike(spc.File):
         spcfile_binary = mainheader_binary + datablock_binary + logblock_binary + b"\x00"
         with open(save_path, 'wb') as f:
             f.write(spcfile_binary)
+        # プログレスバー閉じる
+        self.pbar_widget.is_close_allowed = True
+        self.pbar_widget.close()
     def mainheader2binary(self):
         # byte 文字列にする
         self.fexper = self.fexper.to_bytes(1, byteorder="little")
@@ -985,11 +1001,10 @@ class SubLike(subFile):
         self.y = y_list
         self.subindx = sub_idx
         self.subnpts = len(self.y)
-    def toBinary(self):
+    def toPrepareBinary(self):
         self.subflgs = self.subflgs.to_bytes(1, byteorder="little")
         self.subexp = self.subexp.to_bytes(1, byteorder="little")
-        # self.subindx = self.subindx.to_bytes(2, byteorder="little")
-        subhead_str = "<cchfffiif4s"
+        subhead_str = "cchfffiif4s" # <
         subattrib_list = [
             "subflgs", 
             "subexp",  ##
@@ -1003,9 +1018,7 @@ class SubLike(subFile):
             "subresv"
         ]
         subattrib_data = [getattr(self, attrib) for attrib in subattrib_list]
-        subhead_binary = struct.pack(subhead_str, *subattrib_data)
-        subdata_binary = struct.pack("<"+"f"*self.subnpts, *self.y)
-        return subhead_binary + subdata_binary
+        return subhead_str + "f"*self.subnpts, subattrib_data + list(self.y)
 def open_spc_spcl(file_path):
     # spcファイルの場合
     if file_path.endswith(".spc"):

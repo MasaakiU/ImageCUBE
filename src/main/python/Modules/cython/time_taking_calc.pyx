@@ -18,7 +18,8 @@ ctypedef np.float64_t DTYPEfloat64_t
 
 @cython.boundscheck(False) # turn off bounds-checking for entire function
 @cython.wraparound(False)  # turn off negative index wrapping for entire function
-def median_filter_axis1(np.ndarray[DTYPEfloat64_t, ndim=2] data, int half_window):
+@cython.nonecheck(False)
+def median_filter_axis1(np.ndarray[DTYPEfloat64_t, ndim=2] data, int half_window, pbar, long[:] segment_list):
         assert data.dtype == DTYPEfloat64
         cdef np.ndarray[DTYPEfloat64_t, ndim=2] result_data = np.empty_like(data)
         cdef int idx
@@ -36,6 +37,8 @@ def median_filter_axis1(np.ndarray[DTYPEfloat64_t, ndim=2] data, int half_window
                 # fm [:, 10] = [:, 0:21]
                 # to [:, N_axis1 - 11] = [:, N_axis1 - 21 : N_axis1]
                 result_data[:, idx+half_window] = np.median(data[:, idx:idx+window+1], axis=1)
+                if idx in segment_list:
+                        pbar.setRealValue(idx)
 #        # 真ん中らへん：遅かった
 #        cdef np.ndarray[DTYPEfloat64_t, ndim=3] tmp_data = np.empty((window + 1, N_axis0, N_middle_loop))
 #        for idx in range(window + 1):

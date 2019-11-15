@@ -1,6 +1,10 @@
 # -*- Coding: utf-8 -*-
 import functools
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import (
+    Qt, 
+    pyqtSignal, 
+    QCoreApplication, 
+    )
 from PyQt5.QtWidgets import (
     QDialog, 
     QSpinBox, 
@@ -16,6 +20,7 @@ from PyQt5.QtWidgets import (
     QWidget, 
     QCheckBox, 
     )
+import numpy as np
 
 from . import draw
 from . import general_functions as gf
@@ -286,10 +291,17 @@ class WarningPopup(QMessageBox):
         p = self.palette()
         p.setColor(self.backgroundRole(), Qt.white)
         self.setPalette(p)
- 
+
 class ProgressBarWidget(QWidget):
-    def __init__(self, parent, message=""):
+    signal = pyqtSignal(int)
+    def __init__(self, parent, message="", real_value_max=100):
         super().__init__()
+        self.setFixedSize(300, 100)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        # シグナル
+        self.real_value_max = real_value_max
+        self.signal.connect(self.on_signal_emit)
+        # 実質
         self.pbar = QProgressBar(self)
         self.pbar.setGeometry(30, 40, 200, 25)
         self.pbar.setValue(0)
@@ -301,16 +313,31 @@ class ProgressBarWidget(QWidget):
         layout.addStretch(1)
         self.setLayout(layout)
         self.is_close_allowed = False
+    def get_segment_list(self, n, segment):
+        if n > segment:
+            return np.arange(n)[::int(n/segment)]
+        else:
+            return np.arange(n)[::1]
+    def show(self):
+        super().show()
+        QCoreApplication.processEvents()
     def setLabel(self, text):
         self.label.setText(text)
+    def setRealValue(self, real_value):
+        self.pbar.setValue(100 * real_value / self.real_value_max)
+        QCoreApplication.processEvents()
     def addValue(self, value):
         cur_value = self.pbar.value()
         self.pbar.setValue(cur_value + value)
+        QCoreApplication.processEvents()
     def closeEvent(self, event=None):
         if self.is_close_allowed:
             event.accept()
         else:
             event.ignore()
+    def on_signal_emit(self, real_value):
+        print("{0}/{1}".format(value, self.real_value_max))
+        self.setRealValue(real_value)
 
 
 # class BoolMessagePopup(QMessageBox):

@@ -307,6 +307,7 @@ class ProgressBarWidget(QWidget):
         self.pbar.setValue(0)
         self.label = QLabel()
         self.setLabel(message)
+        # レイアウト
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(QLabel(" "))
@@ -336,7 +337,7 @@ class ProgressBarWidget(QWidget):
         else:
             event.ignore()
     def on_signal_emit(self, real_value):
-        print("{0}/{1}".format(value, self.real_value_max))
+        print("{0}/{1}".format(real_value, self.real_value_max))
         self.setRealValue(real_value)
 
 

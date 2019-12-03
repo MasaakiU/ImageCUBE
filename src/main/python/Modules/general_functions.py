@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.5.5"
+ver = "0.5.6"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -351,13 +351,19 @@ def get_local_minmax(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
     local_y = y_list[local_area]
     return(local_y.min(), local_y.max())
-def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list):
+def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, to_zero):
     # 引き算したあとの関数を直線近似した際の、二乗誤差を求める関数
-    def rnorm(n):
-        diff_y_list = master_y_list - n * added_regional_y_list
-        # 直線近似（a:傾き、b:切片）
-        params, residuals, rank, s = np.linalg.lstsq(np.vstack([master_x_list, np.ones(len(master_x_list))]).T, diff_y_list, rcond=-1)
-        return residuals[0]
+    if not to_zero:
+        def rnorm(n):
+            diff_y_list = master_y_list - n * added_regional_y_list
+            # 直線近似（a:傾き、b:切片）
+            params, residuals, rank, s = np.linalg.lstsq(np.vstack([master_x_list, np.ones(len(master_x_list))]).T, diff_y_list, rcond=-1)
+            return residuals[0]
+    else:
+        def rnorm(n):
+            diff_y_list = master_y_list - n * added_regional_y_list
+            # 単純に 0 に近づける
+            return (diff_y_list ** 2).sum()
     optimization_results = minimize_scalar(rnorm, bounds=(0, np.inf))
     umx_height_value = -optimization_results.x # [係数リスト（-optimization_results.x = -n）, オリジナル]
     return umx_height_value
@@ -1004,7 +1010,7 @@ class SubLike(subFile):
     def toPrepareBinary(self):
         self.subflgs = self.subflgs.to_bytes(1, byteorder="little")
         self.subexp = self.subexp.to_bytes(1, byteorder="little")
-        subhead_str = "cchfffiif4s" # <
+        subhead_str = "ccHfffiif4s" # <
         subattrib_list = [
             "subflgs", 
             "subexp",  ##

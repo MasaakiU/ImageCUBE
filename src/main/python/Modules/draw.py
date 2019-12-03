@@ -384,8 +384,14 @@ class ToolbarLayout(QVBoxLayout):
         else:
             # スペクトルの引き算
             btnSpectrumLinearSubtraction = my_w.CustomPicButton("spct_calc1.svg", "spct_calc2.svg", "spct_calc3.svg", base_path=gf.icon_path)
-            btnSpectrumLinearSubtraction.clicked.connect(self.execute_spectrum_linear_subtraction)
-            btnSpectrumLinearSubtraction.setToolTip("gaussian fitted subtract spectrum")
+            btnSpectrumLinearSubtraction.clicked.connect(functools.partial(self.execute_spectrum_linear_subtraction, to_zero=False))
+            btnSpectrumLinearSubtraction.setToolTip("linear subtraction of spectrum")
+            # スペクトル引き算右クリックメニュー
+            btnSpectrumLinearSubtraction.setContextMenuPolicy(Qt.CustomContextMenu)
+            subtraction_action_name_list=["to zero"]
+            subtraction_action_func_list=[functools.partial(self.execute_spectrum_linear_subtraction, to_zero=True)]
+            subt_menu = my_w.CustomContextMenu(parentBtn=btnSpectrumLinearSubtraction, action_name_list=subtraction_action_name_list, action_func_list=subtraction_action_func_list)
+            btnSpectrumLinearSubtraction.customContextMenuRequested.connect(functools.partial(my_w.on_context_menu, menu=subt_menu))
             # レイアウト
             spectrum_layout.addWidget(btnSpectrumLinearSubtraction)
         # 右側の軸を隠すかどうか
@@ -660,7 +666,7 @@ class ToolbarLayout(QVBoxLayout):
             # 次回用に保存
             gf.settings["method dir"] = os.path.dirname(file_path)
             gf.save_settings_file()
-    def execute_spectrum_linear_subtraction(self):
+    def execute_spectrum_linear_subtraction(self, btn=None, to_zero=False):
         # チェック
         added_content_list = [added_spectrum_info for added_spectrum_info in self.added_spectrum_info_list 
             if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
@@ -675,10 +681,10 @@ class ToolbarLayout(QVBoxLayout):
         eRS = range_settings_popup.spbx_RS2.value()
         # スペクトルオンリーデータの場合
         if self.parent.spectrum_widget.spc_file.fnsub == done == 1:
-            self.parent.spectrum_widget.spectrum_linear_subtraction(sRS, eRS)
+            self.parent.spectrum_widget.spectrum_linear_subtraction(sRS, eRS, to_zero)
         # マップイメージの場合
         elif self.parent.spectrum_widget.spc_file.fnsub > 1 and done == 1:
-            self.parent.spectrum_widget.multi_spectrum_linear_subtraction(sRS, eRS)
+            self.parent.spectrum_widget.multi_spectrum_linear_subtraction(sRS, eRS, to_zero)
             # スペクトル更新
             self.parent.spectrum_widget.replace_spectrum(0, 0)
             self.parent.map_widget.set_crosshair(0, 0)
@@ -916,6 +922,8 @@ class SpectrumWidget(pg.PlotWidget):
         self.addItem(self.master_spectrum)  # original
         self.additional_lines = []
         self.additional_fill_btwn_items = []
+        self.additional_points = pg.ScatterPlotItem(size=3, pen=pg.mkPen(255, 0, 0, 255), brush=pg.mkBrush(255, 0, 0, 255))
+        self.addItem(self.additional_points)
     # グラフがある場合、親 widget が focus を get できない。
     def focusInEvent(self, event):
         self.parent.focusInEvent(event)
@@ -1008,12 +1016,16 @@ class SpectrumWidget(pg.PlotWidget):
     def hide_all_lines(self):
         for content in self.additional_lines:
             content.hide()
+    def hide_all_points(self):
+        self.additional_points.hide()
     def show_all_fill_btwn_items(self):
         for content in self.additional_fill_btwn_items:
             content.show()
     def show_all_lines(self):
         for content in self.additional_lines:
             content.show()
+    def show_all_points(self):
+        self.additional_points.show()
     # Process items to display in vb1
     def display_map_spectrum(self):
         # map info
@@ -1089,8 +1101,8 @@ class SpectrumWidget(pg.PlotWidget):
                 RS_idx2 = self.spc_file.get_idx(values[1])
                 RS_idx1, RS_idx2 = np.sort([RS_idx1, RS_idx2])
                 x_value2 = self.spc_file.x[RS_idx2]
-                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2+1]
-                fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2+1], y_value_list)
+                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2 + 1]
+                fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2 + 1], y_value_list)
             x_value1 = self.spc_file.x[RS_idx1]
             # set graph
             if self.parent.cur_displayed_map_info["detail"] == "signal_intensity":
@@ -1113,6 +1125,38 @@ class SpectrumWidget(pg.PlotWidget):
                 self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
             else:
                 raise Exception("attr error")
+        elif self.parent.cur_displayed_map_info["type"] == "custom":
+            if "range" in self.parent.cur_displayed_map_info["data"].keys():
+                self.set_N_additional_fill_btwn_items(1)
+                RS_val1, RS_val2 = self.parent.cur_displayed_map_info["data"]["range"]
+                RS_idx1 = self.spc_file.get_idx(RS_val1)
+                RS_idx2 = self.spc_file.get_idx(RS_val2)
+                RS_idx1, RS_idx2 = np.sort([RS_idx1, RS_idx2])
+                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2 + 1]
+                x_value1 = self.spc_file.x[RS_idx1]
+                x_value2 = self.spc_file.x[RS_idx2]
+                # set values
+                fill_btm = pg.PlotDataItem([x_value1, x_value2], [0, 0])
+                fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2 + 1], y_value_list)
+                self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
+            else:
+                self.hide_all_fill_btwn_items()
+            if "points" in self.parent.cur_displayed_map_info["data"].keys():
+                self.additional_points.setData(
+                    x=self.parent.cur_displayed_map_info["data"]["points"][sub_idx][0],
+                    y=self.parent.cur_displayed_map_info["data"]["points"][sub_idx][1]
+                    )
+                self.show_all_points()
+            else:
+                self.hide_all_points()
+            if "lines" in self.parent.cur_displayed_map_info["data"].keys():
+                self.set_N_additional_lines(len(self.parent.cur_displayed_map_info["data"]["lines"][0]))
+                for line, value in zip(self.additional_lines, self.parent.cur_displayed_map_info["data"]["lines"][sub_idx]):
+                    line.setData([value, value], [0, 10000])
+                self.show_all_lines()
+            else:
+                self.hide_all_lines()
+
     def display_additional_spectrum(self, sub_idx):
         # CRRされたスペクトル
         cosmic_ray_locs = self.spc_file.log_dict.get(b"cosmic_ray_locs", [])
@@ -1395,7 +1439,14 @@ class SpectrumWidget(pg.PlotWidget):
     def save_spectrum_as_spc(self, spc_like, save_path=None, ask=True):
         # 保存先：ボタンについてる名前がデフォルトのファイル名になる
         if save_path is None:
-            default_path = os.path.join(self.parent.dir_path, self.parent.file_name)
+            name_overlapped = True
+            N = 1
+            while name_overlapped:
+                default_path = "{0}_sub{1}.spc".format(os.path.join(self.parent.dir_path, self.parent.file_name_wo_ext), N)
+                if os.path.exists(default_path):
+                    N += 1
+                else:
+                    name_overlapped = False
             save_path, file_type = QFileDialog.getSaveFileName(self.parent, 'save as spc file', default_path, filter="unmix method files (*.spc)")
         else:
             if os.path.exists(save_path) and ask:
@@ -1446,7 +1497,7 @@ class SpectrumWidget(pg.PlotWidget):
         added_y_list2 = np.interp(master_x_list2, added_x_list, added_y_list)
         return (x_min1, x_max1), (x_min2, x_max2), added_y_list1, added_y_list2, added_content
     # self.spectrum_linear_subtraction の map 用 version.
-    def multi_spectrum_linear_subtraction(self, sRS, eRS):
+    def multi_spectrum_linear_subtraction(self, sRS, eRS, to_zero):
         # プログレスバー処理
         self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Subtracting spectrum... please wait.")
         self.pbar_widget.show()
@@ -1463,7 +1514,7 @@ class SpectrumWidget(pg.PlotWidget):
         for idx in range(self.spc_file.fnsub):
             master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=idx)
             # 最小二乗
-            umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2)
+            umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
             umx_h_list[idx] = umx_h_value
             area_values_list[idx] = ((self.spc_file.sub[idx].y[x_min1_idx + 1:x_max1_idx + 1] + self.spc_file.sub[idx].y[x_min1_idx:x_max1_idx]) \
                                         * selected_RS_diff_list_half).sum() + to_subtract_base_value * umx_h_value
@@ -1500,14 +1551,14 @@ class SpectrumWidget(pg.PlotWidget):
         self.pbar_widget.is_close_allowed = True
         self.pbar_widget.close()
     # 追加スペクトルが1本のみの場合に適用。指定された波数範囲において元スペクトルから、n倍した追加スペクトルを引き算し、なるべく直線に近づくような引き算をする。
-    def spectrum_linear_subtraction(self, sRS, eRS):
+    def spectrum_linear_subtraction(self, sRS, eRS, to_zero):
         # 追加スペクトルの補間版（1はオリジナルと追加の共通部分、2はそれにsRS, eRSの共通部分も含めたもの）
         x_minmax1, x_minmax2, added_y_list1, added_y_list2, added_content = self.get_spectrum_linear_subtraction_basic_info(sRS, eRS)
         # 元データ
         master_x_list1, master_y_list1 = self.spc_file.get_data(x_minmax1[0], x_minmax1[1], sub_idx=0)
         master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=0)
         # 最小二乗
-        umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2)
+        umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
         # 追加
         plot_data_item = pg.PlotDataItem(master_x_list1, (added_y_list1 * umx_h_value + master_y_list1), fillLevel=0, pen=gf.mk_u_pen())
         self.plotItem.vb.addItem(plot_data_item)

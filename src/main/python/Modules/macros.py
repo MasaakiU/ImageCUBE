@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QDialog, 
     QComboBox, 
     QFormLayout, 
+    QCheckBox, 
     )
 from PyQt5.QtCore import QEventLoop, QCoreApplication, Qt
 from Modules import general_functions as gf
@@ -37,6 +38,7 @@ class BatchProcessingWindow(QWidget):
         btnOpenWindow = my_w.CustomPicButton("open1.svg", "open2.svg", "open3.svg", base_path=gf.icon_path, parent=self)
         btnCloseWindow = my_w.CustomPicButton("close_all_1.svg", "close_all_2.svg", "close_all_3.svg", base_path=gf.icon_path, parent=self)
         btnSetCfp = my_w.CustomPicButton("cfp1.svg", "cfp2.svg", "cfp3.svg", base_path=gf.icon_path, parent=self)
+        btnGoToCfp = my_w.CustomPicButton("cfp1.svg", "cfp2.svg", "cfp3.svg", base_path=gf.icon_path, parent=self)
         btnUMX = my_w.CustomPicButton("unmix1.svg", "unmix2.svg", "unmix3.svg", base_path=gf.icon_path, parent=self)
         btnSetSpcRange = my_w.CustomPicButton("set_spc_range1.svg", "set_spc_range2.svg", "set_spc_range3.svg", base_path=gf.icon_path, parent=self)
         btnShowSpectrumWithMaxInt = my_w.CustomPicButton("show_max_int_spc1.svg", "show_max_int_spc2.svg", "show_max_int_spc3.svg", base_path=gf.icon_path, parent=self)
@@ -45,11 +47,13 @@ class BatchProcessingWindow(QWidget):
         btnSignalToBaseline = my_w.CustomPicButton("sig2base1.svg", "sig2base2.svg", "sig2base3.svg", base_path=gf.icon_path, parent=self)
         btnSianglToHorizontalBaseline = my_w.CustomPicButton("sig2h_base1.svg", "sig2h_base2.svg", "sig2h_base3.svg", base_path=gf.icon_path, parent=self)
         btnSignalToAxis = my_w.CustomPicButton("sig2axis1.svg", "sig2axis2.svg", "sig2axis3.svg", base_path=gf.icon_path, parent=self)
-        btnSpectrumSubtraction = my_w.CustomPicButton("sig2axis1.svg", "sig2axis2.svg", "sig2axis3.svg", base_path=gf.icon_path, parent=self)
+        btnAddCurrentSpectrum = my_w.CustomPicButton("add_cur_spec1.svg", "add_cur_spec2.svg", "add_cur_spec3.svg", base_path=gf.icon_path, parent=self)
+        btnSpectrumSubtraction = my_w.CustomPicButton("spct_calc1.svg", "spct_calc2.svg", "spct_calc3.svg", base_path=gf.icon_path, parent=self)
         btnSaveImages = my_w.CustomPicButton("save_map1.svg", "save_map2.svg", "save_map3.svg", base_path=gf.icon_path, parent=self)
         btnSaveSpectrum = my_w.CustomPicButton("save_spct1.svg", "save_spct2.svg", "save_spct3.svg", base_path=gf.icon_path, parent=self)
         btnCosmicRayRemoval = my_w.CustomPicButton("CRR1.svg", "CRR2.svg", "CRR3.svg", base_path=gf.icon_path, parent=self)
         btnNoiseFilterPCA = my_w.CustomPicButton("NF1.svg", "NF2.svg", "NF3.svg", base_path=gf.icon_path, parent=self)
+        btnExportData = my_w.CustomPicButton("export_spc1.svg", "export_spc2.svg", "export_spc3.svg", base_path=gf.icon_path, parent=self)
         btnSetWindowSize = my_w.CustomPicButton("map_size1.svg", "map_size2.svg", "map_size3.svg", base_path=gf.icon_path, parent=self)
         btnImportedPlugins = my_w.CustomPicButton("imported_plgin1.svg", "imported_plgin2.svg", "imported_plgin3.svg", base_path=gf.icon_path, parent=self)
         ##
@@ -70,6 +74,7 @@ class BatchProcessingWindow(QWidget):
         procedure_layout.addRow(btnOpenWindow, QLabel(" open window"))
         procedure_layout.addRow(btnCloseWindow, QLabel(" close window"))
         procedure_layout.addRow(btnSetCfp, QLabel(" set cell free position"))
+        procedure_layout.addRow(btnGoToCfp, QLabel(" go to cell free position"))
         procedure_layout.addRow(btnUMX, QLabel(" spectrum unmixing"))
         procedure_layout.addRow(btnShowSpectrumWithMaxInt, QLabel(" show spectrum with max intensity"))
         procedure_layout.addRow(btnSetSpcRange, QLabel(" set spectrum range"))
@@ -80,9 +85,11 @@ class BatchProcessingWindow(QWidget):
         procedure_layout.addRow(btnSignalToBaseline, QLabel(" signal to baseline"))
         procedure_layout.addRow(btnSianglToHorizontalBaseline, QLabel(" signal to horizontal line"))
         procedure_layout.addRow(btnSignalToAxis, QLabel(" signal to axis"))
+        procedure_layout.addRow(btnAddCurrentSpectrum, QLabel(" add current spectrum"))
         procedure_layout.addRow(btnSpectrumSubtraction, QLabel(" spectrum subtraction"))
         procedure_layout.addRow(btnCosmicRayRemoval, QLabel(" cosmic ray removal"))
         procedure_layout.addRow(btnNoiseFilterPCA, QLabel(" PCA based noise filter"))
+        procedure_layout.addRow(btnExportData, QLabel(" export data"))
         procedure_layout.addRow(btnSetWindowSize, QLabel(" set window size"))
         procedure_layout.addRow(btnImportedPlugins, QLabel(" imported plugins"))
         # execute
@@ -132,6 +139,7 @@ class BatchProcessingWindow(QWidget):
         btnCloseWindow.clicked.connect(self.btnCloseW_clicked)
         btnSetPath.clicked.connect(self.btnSetPath_clicked)
         btnSetCfp.clicked.connect(self.btnSetCfp_clicked)
+        btnGoToCfp.clicked.connect(self.btnGoToCfp_clicked)
         btnUMX.clicked.connect(self.btnUMX_clicked)
         btnSetSpcRange.clicked.connect(self.btnSetSpcRange_clicked)
         btnShowSpectrumWithMaxInt.clicked.connect(self.btnShowSpectrumWithMaxInt_clicked)
@@ -140,10 +148,13 @@ class BatchProcessingWindow(QWidget):
         btnSignalToBaseline.clicked.connect(self.btnSignalToBaseline_clicked)
         btnSianglToHorizontalBaseline.clicked.connect(self.SianglToHorizontalBaseline_clicked)
         btnSignalToAxis.clicked.connect(self.btnSignalToAxis_clicked)
+        btnAddCurrentSpectrum.clicked.connect(self.btnAddCurrentSpectrum_clicked)
+        btnSpectrumSubtraction.clicked.connect(self.btnSpectrumSubtraction_clicked)
         btnSaveImages.clicked.connect(self.btnSaveImages_clicked)
         btnSaveSpectrum.clicked.connect(self.btnSaveSpectrum_clicked)
         btnCosmicRayRemoval.clicked.connect(self.btnCosmicRayRemoval_clicked)
         btnNoiseFilterPCA.clicked.connect(self.btnNoiseFilterPCA_clicked)
+        btnExportData.clicked.connect(self.btnExportData_clicked)
         btnSetWindowSize.clicked.connect(self.btnSetWindowSize_clicked)
         btnImportedPlugins.clicked.connect(self.btnImportedPlugins_clicked)
         btnRUN.clicked.connect(self.btnRUN_clicked)
@@ -167,6 +178,9 @@ class BatchProcessingWindow(QWidget):
     @btn_clicked
     def btnSetCfp_clicked(self, event):
         return CellFreePositionSettings(parent=self.process_layout, main_window=self.parent), "CFP"
+    @btn_clicked
+    def btnGoToCfp_clicked(self, evnet):
+        return GoToCellFreePosition(parent=self.process_layout, main_window=self.parent), "GTC"
     @btn_clicked
     def btnUMX_clicked(self, event):
         return BatchUnmixing(parent=self.process_layout, main_window=self.parent), "UMX"
@@ -192,6 +206,12 @@ class BatchProcessingWindow(QWidget):
     def btnSignalToAxis_clicked(self, event):
         return SignalToAxis(parent=self.process_layout, main_window=self.parent), "STA"
     @btn_clicked
+    def btnAddCurrentSpectrum_clicked(self, event):
+        return AddCurrentSpectrum(parent=self.process_layout, main_window=self.parent), "ACS"
+    @btn_clicked
+    def btnSpectrumSubtraction_clicked(self, event):
+        return SpectrumSubtraction(parent=self.process_layout, main_window=self.parent), "SSB"
+    @btn_clicked
     def btnSaveImages_clicked(self, event):
         return SaveImages(parent=self.process_layout, main_window=self.parent), "SI"
     @btn_clicked
@@ -203,6 +223,9 @@ class BatchProcessingWindow(QWidget):
     @btn_clicked
     def btnNoiseFilterPCA_clicked(self, event):
         return NoiseFilterPCA(parent=self.process_layout, main_window=self.parent), "CRR"
+    @btn_clicked
+    def btnExportData_clicked(self, event):
+        return ExportData(parent=self.process_layout, main_window=self.parent), "EXD"
     @btn_clicked
     def btnSetWindowSize_clicked(self, event):
         return SetWindowSize(parent=self.process_layout, main_window=self.parent), "SWS"
@@ -389,6 +412,29 @@ class CellFreePositionSettings(my_w.ClickableQWidget):
         else:
             # opened_window.close()
             return None, "Invalid window type."
+class GoToCellFreePosition(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "CFP"
+        self.title = "go to cell free position"
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel(self.title))
+        self.layout.addStretch(1)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "Error in 'go to cell free position' action. No window is opened."
+        if opened_window.window_type == "ms":
+            loc_x = int(opened_window.spectrum_widget.spc_file.log_dict[b"cfp_x"])
+            loc_y = int(opened_window.spectrum_widget.spc_file.log_dict[b"cfp_y"])
+            opened_window.spectrum_widget.replace_spectrum(loc_x, loc_y)
+            opened_window.map_widget.set_crosshair(loc_x, loc_y)
+            return opened_window, "continue"
+        else:
+            # opened_window.close()
+            return opened_window, "Invalid window type."
 class BatchUnmixing(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -638,6 +684,57 @@ class SignalToAxis(my_w.ClickableQWidget):
         else:
             # opened_window.close()
             return opened_window, "Invalid window type."
+class AddCurrentSpectrum(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "ACS"
+        self.title = "add current spectrum"
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel(self.title))
+        self.layout.addStretch(1)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "Error in 'add current spectrum' action. No window is opened."
+        if opened_window.window_type == "ms":
+            opened_window.toolbar_layout.add_current_spectrum()
+            return opened_window, "continue"
+        else:
+            return opened_window, "Invalid window type."
+class SpectrumSubtraction(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "SSB"
+        self.option = {}
+        # オプション
+        self.ckbx = QCheckBox("to zero   ")
+        self.range_bottom =  QSpinBox()
+        self.range_top =  QSpinBox()
+        self.range_bottom.setMinimum(0)
+        self.range_top.setMinimum(0)
+        self.range_bottom.setMaximum(65535)
+        self.range_top.setMaximum(65535)
+        self.range_bottom.setValue(1900)
+        self.range_top.setValue(2500)
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel("subtract spectrum"))
+        self.layout.addStretch(1)
+        self.layout.addWidget(self.ckbx)
+        self.layout.addWidget(self.range_bottom)
+        self.layout.addWidget(self.range_top)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "Error in 'subtract spectrum' action. No window is opened."
+        if opened_window.window_type in ["ms", "s"]:
+            opened_window.toolbar_layout.execute_spectrum_linear_subtraction(btn=None, to_zero=self.ckbx.isChecked(), ask=False, RS_set=[self.range_bottom.value(), self.range_top.value()])
+            return opened_window, "continue"
+        else:
+            return opened_window, "Invalid window type."
 class SaveImages(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -734,6 +831,41 @@ class NoiseFilterPCA(my_w.ClickableQWidget):
             return None, "Error in 'PCA based noise filter' action. No window is opened."
         if opened_window.window_type == "ms":
             opened_window.toolbar_layout.apply_noise_filter(ask=False, N_components=self.N_components.value())
+            return opened_window, "continue"
+        else:
+            # opened_window.close()
+            return opened_window, "Invalid window type."
+class ExportData(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "EXD"
+        self.option = {}
+        # オプション
+        self.export_spectra = QComboBox()
+        self.export_spectra.addItems(["hyperspectral data", "spectrum data", "both"])
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel("export data"))
+        self.layout.addStretch(1)
+        self.layout.addWidget(self.export_spectra)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "Error in 'export data' action. No window is opened."
+        if opened_window.window_type == "ms":
+            if self.export_spectra.currentText() in ("hyperspectral data", "both"):
+                for idx in range(self.main_window.map_spect_table.map_layout.count() - 1):
+                    content_widget = self.main_window.map_spect_table.map_layout.itemAt(idx).widget().optional_item
+                    if "export_spectrum" in dir(content_widget):
+                        content_widget.export_spectrum(save_path=None, ask=False)
+            return opened_window, "continue"
+        if opened_window.window_type == "s":
+            if self.export_spectra.currentText() in ("spectrum data", "both"):
+                for idx in range(self.main_window.map_spect_table.spectrum_layout.count() - 1):
+                    content_widget = self.main_window.map_spect_table.spectrum_layout.itemAt(idx).widget().optional_item
+                    if "export_spectrum" in dir(content_widget):
+                        content_widget.export_spectrum(save_path=None, ask=False)
             return opened_window, "continue"
         else:
             # opened_window.close()

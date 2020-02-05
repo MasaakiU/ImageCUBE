@@ -666,7 +666,7 @@ class ToolbarLayout(QVBoxLayout):
             # 次回用に保存
             gf.settings["method dir"] = os.path.dirname(file_path)
             gf.save_settings_file()
-    def execute_spectrum_linear_subtraction(self, btn=None, to_zero=False):
+    def execute_spectrum_linear_subtraction(self, btn=None, to_zero=False, ask=True, RS_set=None):
         # チェック
         added_content_list = [added_spectrum_info for added_spectrum_info in self.added_spectrum_info_list 
             if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
@@ -675,10 +675,15 @@ class ToolbarLayout(QVBoxLayout):
             warning_popup = popups.WarningPopup("Exactly 1 added spectrum (blue spectrum) should be displayed!")
             warning_popup.exec_()
             return
-        range_settings_popup = popups.RangeSettingsPopup(parent=self.parent, initial_values=(250, 450), title="set reference range")
-        done = range_settings_popup.exec_()
-        sRS = range_settings_popup.spbx_RS1.value()
-        eRS = range_settings_popup.spbx_RS2.value()
+        if ask:
+            range_settings_popup = popups.RangeSettingsPopup(parent=self.parent, initial_values=(250, 450), title="set reference range")
+            done = range_settings_popup.exec_()
+            sRS = range_settings_popup.spbx_RS1.value()
+            eRS = range_settings_popup.spbx_RS2.value()
+        else:
+            sRS = RS_set[0]
+            eRS = RS_set[1]
+            done = 1
         # スペクトルオンリーデータの場合
         if self.parent.spectrum_widget.spc_file.fnsub == done == 1:
             self.parent.spectrum_widget.spectrum_linear_subtraction(sRS, eRS, to_zero)
@@ -1447,7 +1452,10 @@ class SpectrumWidget(pg.PlotWidget):
                     N += 1
                 else:
                     name_overlapped = False
-            save_path, file_type = QFileDialog.getSaveFileName(self.parent, 'save as spc file', default_path, filter="unmix method files (*.spc)")
+            if ask:
+                save_path, file_type = QFileDialog.getSaveFileName(self.parent, 'save as spc file', default_path, filter="unmix method files (*.spc)")
+            else:
+                save_path = default_path
         else:
             if os.path.exists(save_path) and ask:
                 warwning_popup = popups.WarningPopup("File '%s' already exists. Do you want to overwrite it?"%save_path, p_type="Bool")

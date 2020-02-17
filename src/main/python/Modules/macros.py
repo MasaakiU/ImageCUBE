@@ -31,6 +31,7 @@ class BatchProcessingWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__()
         self.parent = parent
+        self.window_type = "b"
         # 上部ファイルパス
         self.path_entry = QLineEdit()
         btnSetPath = QPushButton("...")
@@ -122,6 +123,7 @@ class BatchProcessingWindow(QWidget):
         batch_scroll_area.setWidgetResizable(True)
         batch_scroll_area.setMinimumWidth(400)
         batch_scroll_area.setWidget(inside_widget)
+        batch_scroll_area.focusInEvent = self.focusInEvent
         batch_area_layout = QVBoxLayout()
         batch_area_layout.addWidget(gf.QRichLabel("Action Flow for every '*.spc' files", font=gf.boldFont))
         batch_area_layout.addWidget(batch_scroll_area)
@@ -161,6 +163,10 @@ class BatchProcessingWindow(QWidget):
         btnRemove.clicked.connect(self.btnRemove_clicked)
         btnMoveUp.clicked.connect(self.btnMoveUp_clicked)
         btnMoveDown.clicked.connect(self.btnMoveDown_clicked)
+    def focusInEvent(self, event):
+        self.parent.focusChanged(self)
+    def focusOutEvent(self, event):
+        pass
     # プロセス系ボタン
     def btn_clicked(func):
         def _wrapper(self, *args, **kwargs):

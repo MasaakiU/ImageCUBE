@@ -238,6 +238,8 @@ class ClickableQWidget(PaintableQWidget):
 
     def addWidget(self, widget):
         self.layout.addWidget(widget)
+    def addStretch(self, value):
+        self.layout.addStretch(value)
 
     def w_mousePressEvent(self, event):
         if self.isFocused:

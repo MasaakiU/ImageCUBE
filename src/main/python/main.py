@@ -37,18 +37,20 @@ from Modules import general_functions as gf
 from Modules import draw
 from Modules import macros
 from Modules import MapSpectTable as mst
+from Modules import output_core as oc
 # インスタンスメソッドを追加
 spc.File.get_shape = gf.get_shape
+spc.File.get_size = gf.get_size
 spc.File.get_sub_idx = gf.get_sub_idx
 spc.File.get_idx = gf.get_idx
 spc.File.get_data = gf.get_data
 spc.File.get_point_intensity_list = gf.get_point_intensity_list
 spc.File.get_total_intensity_list = gf.get_total_intensity_list
-spc.File.set_size = gf.set_size
 spc.File.set_cfp = gf.set_cfp
-spc.File.CRR = gf.CRR
-spc.File.replace_cosmic_ray = gf.replace_cosmic_ray
-spc.File.clear_CRR_fm_object = gf.clear_CRR_fm_object
+spc.File.write_to_binary = gf.write_to_binary
+spc.File.delete_from_binary = gf.delete_from_binary
+spc.File.update_binary = gf.update_binary
+spc.File.modify_prep_order = gf.modify_prep_order
 spc.File.toNumPy_2dArray = gf.toNumPy_2dArray
 spc.File.fmNumPy_2dArray = gf.fmNumPy_2dArray
 
@@ -294,46 +296,15 @@ class MainWindow(QMainWindow):
                             self.open_spectrum_window(spc_file, file_path)
                         # map画像以上の場合
                         else:
-
-                            ###
-                            ###
-                            ###
-                            # 古いバージョンで開いたspcファイルは、log blockのサイズ (self.logsizd) 情報がupdateされていないものがある。それの対処。
-                                # flogoff + logtxto ~ flogoff + logtxto + logsizd
-                            # を読んでるから、長く読んでしまっていた。正しくは下記。（オリジナルの spc.py のライブラリを編集して使うこと）
-                                # flogoff + logtxto ~ flogoff + logtxto + logsizd - logtxto
-                            # logファイルは幸いなことに一番最後に書かれてる（プラスして\x00が1文字入ってはいるが）:一致してるかを見る
-                            flogoff = spc_file.flogoff
-                            length = spc_file.length
-                            update = gf.legacy_function_to_correct_logsizd(file_path, flogoff, length)
-                            if update:
-                                spc_file = gf.open_spc_spcl(file_path)
-                            ###
-                            ###
-                            ###
-
-                            # 開いていない場合、もしくは一度間違って指定してしまった場合、サイズを指定する必要がある
-                            if (b"[map_size]" not in spc_file.log_other) or resize:
-                                size_popup = popups.SizeSettingsPopup(parent=self, spc_file=spc_file)
-                                done = size_popup.exec_()
-                                # ちゃんとサイズ指定できたとき
-                                if done == 1:
-                                    # オリジナルのバイナリファイルを上書き（バイナリファイルに合致するように、spc_file.log_dictの辞書にも追加される関数です）
-                                    spc_file.set_size(file_path, size_popup.size_x, size_popup.size_y)
-                                # キャンセルされたとき
-                                else:
-                                    return
+                            # 初期設定
+                            spc_file = gf.spc_init(spc_file, file_path)
                             # windowを開く
                             self.open_map_spect_window(spc_file, file_path)
-                            # CRR がある場合は、実行
-                            try:
-                                spc_file = self.child_window_list[-1].spectrum_widget.spc_file
-                                spc_file.log_dict[b"cosmic_ray_locs"] = eval(spc_file.log_dict[b"cosmic_ray_locs"].replace(b"array", b"np.array"))
-                                spc_file.log_dict[b"cosmic_ray_removal_params"] = eval(spc_file.log_dict[b"cosmic_ray_removal_params"].replace(b"array", b"np.array"))
-                                spc_file.replace_cosmic_ray()
-                                self.child_window_list[-1].toolbar_layout.apply_CRR()
-                            except:
-                                pass
+                    elif file_path.endswith(".out"):
+                        out_file = oc.open_output_file(file_path)
+                        if out_file is not None:
+                            # windowを開く
+                            self.open_spectrum_window(out_file, file_path)
                     gf.settings["last opened dir"] = os.path.dirname(file_path)
                     gf.save_settings_file()
                     # GUI update
@@ -342,7 +313,7 @@ class MainWindow(QMainWindow):
     # 通常の開く
     @open_files
     def open_files_clicked(self, event=None, resize=False):
-        file_path_list, file_type = QFileDialog.getOpenFileNames(self, 'Select spctrum file', gf.settings["last opened dir"], filter="spc files (*.spc *.spcl *.umx)")
+        file_path_list, file_type = QFileDialog.getOpenFileNames(self, 'Select spctrum file', gf.settings["last opened dir"], filter="spectrum files (*.spc *.spcl *.umx *.out)")
         return file_path_list, resize
     # ダブルクリックにより開く
     @open_files
@@ -651,8 +622,13 @@ class SpectrumWindow(QWidget):
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
         self.setLayout(layout)
-        if spc_file is not None:
-            self.spectrum_widget.open_initial()
+        # outputファイル由来の場合
+        try: 
+            g_width = self.spectrum_widget.spc_file.g_width
+            scaling = self.spectrum_widget.spc_file.scaling
+            self.spectrum_widget.SCL_master()
+        except:
+            pass
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
@@ -668,15 +644,18 @@ class MapSpectWindow(QWidget):
         # 情報
         self.parent = parent
         self.window_type = "ms"
-        self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(file_path)
+        self.file_path = file_path
+        self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(self.file_path)
         self.cur_displayed_map_info = None
+        self.cur_overlayed_map_info = None
         # 全体設定
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.setWindowTitle("%s (%d(x) x %d(y) x %d(spec.))"%(self.file_name, int(spc_file.log_dict[b"map_x"]), int(spc_file.log_dict[b"map_y"]), spc_file.fnpts))
         self.toolbar_layout = draw.ToolbarLayout(self.window_type, parent=self) # map & spectrum
         self.map_widget = draw.MapWidget(spc_file, parent=self)
         self.spectrum_widget = draw.SpectrumWidget(spc_file, parent=self)
+        # 初期処理
+        self.toolbar_layout.execute_preprocess(mode="init")
         # 背景
         # self.setObjectName("MapSpectWindow")   # childWidgetに影響を与えないためのID付け
         # self.setStyleSheet('QWidget#MapSpectWindow{background-color: %s}'%gf.dbg_color)
@@ -690,8 +669,14 @@ class MapSpectWindow(QWidget):
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
         self.setLayout(layout)
-        if spc_file is not None:
-            self.spectrum_widget.open_initial()
+    def set_window_title(self):
+        self.setWindowTitle(
+            "{0} ({1}(x) x {2}(y) x {3}(spec.))".format(
+                self.file_name, 
+                *self.spectrum_widget.spc_file.get_shape()[::-1], 
+                self.spectrum_widget.spc_file.fnpts
+            )
+        )
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):

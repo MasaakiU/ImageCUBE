@@ -11,6 +11,12 @@ from scipy.optimize import nnls, curve_fit
 from PyQt5.QtWidgets import (
     QVBoxLayout, 
     QFileDialog, 
+    QWidget, 
+    QCheckBox, 
+    QLabel, 
+    QHBoxLayout, 
+    QComboBox, 
+    QDoubleSpinBox, 
     )
 from PyQt5.QtCore import (
     QSize, 
@@ -45,30 +51,40 @@ class AddedContent():
         # {content: map/spectrum,
         # type:     original/added/unmixed/subtracted,
         # detail:   file_path/from_data/signal_intensity/signal_to_baseline/representative_cell_free_pos,
-        # values:   []
-        # idx:      int     (optional)
-        # "data":   data    (optional)
+        # draw:     v_line/range/func
+        # "data":   RS/[RS1, RS2]/[RS1, RS2, func]   (correspond with "draw")
         # }
         self.parent_window = parent_window
         self.allowed_btn_list = ["hide_show"]
         self.focused = False
+    def format_data(self):
+        if self.info["draw"] == "v_line":
+            return "({0[0]})".format(self.info["data"])
+        elif self.info["draw"] == "range":
+            return "({0[0]}-{0[1]})".format(self.info["data"])
+        elif self.info["draw"] == "func":
+            return "({0[0]}-{0[1]}, {1})".format(self.info["data"], self.info["data"][2].format_data())
+        elif self.info["draw"] == "static":
+            return "{0}".format(self.info["data"])
+        elif self.info["draw"] == "master":
+            return ""
+        elif self.info["draw"] == "spc_overlay":
+            return ""
+        elif self.info["draw"] == "none":
+            return ""
+        else:
+            return "{0}".format(self.info["data"])
     def content_type(self):
-        return " " + self.info["type"] + " " + self.info["content"]
-    def detail_values(self):
-        detail_values = ""
-        if len(self.info["values"]) != 0:
-            detail_values += "(" + ",".join(list(map(str, self.info["values"]))) + ") "
-        detail_values += self.info["detail"]
-        return detail_values
+        return " {0} {1}".format(self.info["type"], self.info["content"])
+    def info_to_display(self):
+        return "{0}\t{1} {2}".format(self.content_type(), self.format_data(), self.info["detail"])
+    def widgets_to_display(self):
+        return []
     def summary(self):
-        summary = ""
-        summary += self.content_type()
-        summary += self.detail_values()
-        return summary
+        return "{0} {1} {2}".format(self.content_type(), self.format_data(), self.info["detail"])
 class AddedContent_Spectrum(AddedContent):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
-        self.CLASS = "Specttum"
         # オリジナルスペクトルの場合は、消す行為は許されない
         if self.info["type"] != "original":
             self.allowed_btn_list.append("remove")
@@ -88,7 +104,7 @@ class AddedContent_Spectrum(AddedContent):
             self.item.show()
     def remove_item(self):
         self.parent_window.spectrum_widget.vb2.removeItem(self.item)
-        self.parent_window.toolbar_layout.added_spectrum_info_list.remove(self)
+        self.parent_window.toolbar_layout.added_content_spc_list.remove(self)
     def export_spectrum(self, save_path=None, ask=True):
         spc_like = gf.SpcLike()
         spc_like.init_fmt(self.parent_window.spectrum_widget.spc_file)
@@ -103,7 +119,6 @@ class AddedContent_Spectrum(AddedContent):
 class AddedContent_RepresentativeCFP(AddedContent_Spectrum):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
-        self.CLASS = "RepresentativeCFP"
         self.allowed_btn_list.remove("export")
     def focus_unfocus(self, focused):
         self.focused = focused
@@ -128,10 +143,10 @@ class AddedContent_Map(AddedContent):
             self.parent_window.spectrum_widget.hide_all_lines()
             self.info["spectrum_hidden"] = False
     def hide_show_item(self):
-        if self.info["detail"] == "signal_intensity":
+        if self.info["draw"] == "v-line":
             isVisible = self.parent_window.spectrum_widget.additional_lines[0].isVisible()
             object_name = "lines"
-        elif self.info["detail"] in ("signal_to_baseine", "signal_to_H_baseline", "signal_to_axis"):
+        elif self.info["draw"] == "region":
             isVisible = self.parent_window.spectrum_widget.additional_fill_btwn_items[0].isVisible()
             object_name = "fill_btwn_items"
         else:
@@ -140,11 +155,10 @@ class AddedContent_Map(AddedContent):
             exe = "hide"
         else:
             exe = "show"
-        self.info["spectrum_hidden"] = isVisible
         function = getattr(self.parent_window.spectrum_widget, "%s_all_%s"%(exe, object_name))
         function()
     def remove_item(self):
-        self.parent_window.toolbar_layout.added_map_info_list.remove(self)
+        self.parent_window.toolbar_layout.added_content_map_list.remove(self)
         self.parent_window.map_widget.map_img.hide()
         self.parent_window.cur_displayed_map_info = None
         self.parent_window.spectrum_widget.set_N_additional_lines(0)
@@ -177,13 +191,13 @@ class AddedContent_Unmixed(AddedContent_Map):
     def remove_item(self):
         abs_id = self.parent_window.cur_displayed_map_info["data"].abs_id
         idxes_to_remove = []
-        for idx, added_content in enumerate(self.parent_window.toolbar_layout.added_map_info_list):
+        for idx, added_content in enumerate(self.parent_window.toolbar_layout.added_content_map_list):
             if added_content.info["type"] != "unmixed":
                 continue
             if added_content.info["data"].abs_id == abs_id:
                 idxes_to_remove.append(idx)
         for idx in idxes_to_remove[::-1]:
-            del self.parent_window.toolbar_layout.added_map_info_list[idx]
+            del self.parent_window.toolbar_layout.added_content_map_list[idx]
         self.parent_window.map_widget.map_img.hide()
         self.parent_window.cur_displayed_map_info = None
         self.parent_window.spectrum_widget.set_N_additional_lines(0)
@@ -193,7 +207,6 @@ class AddedContent_SubtractedSpectrums(AddedContent_Map):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
         self.allowed_btn_list.append("export")
-        self.CLASS = "SubtractedSpectrums"
     def hide_show_item(self):
         isVisible = self.parent_window.spectrum_widget.additional_fill_btwn_items[0].isVisible()
         if isVisible:
@@ -208,7 +221,7 @@ class AddedContent_SubtractedSpectrums(AddedContent_Map):
         spc_like.init_fmt(self.parent_window.spectrum_widget.spc_file)
         spc_like.add_xData(self.info["data"].master_x_list1)
         added_y_list1 = self.info["data"].added_y_list1
-        for sub_idx, umx_h in enumerate(self.info["data"].umx_h_list):
+        for sub_idx, umx_h in enumerate(self.info["data"][2].sub_h_list):
             # subフィアル作成
             sub_like = gf.SubLike()
             sub_like.init_fmt(self.parent_window.spectrum_widget.spc_file.sub[sub_idx])
@@ -216,40 +229,229 @@ class AddedContent_SubtractedSpectrums(AddedContent_Map):
             # 追加
             spc_like.add_subLike(sub_like)
         self.parent_window.spectrum_widget.save_spectrum_as_spc(spc_like, save_path=save_path, ask=ask)
-
+class AddedContent_PreP(AddedContent):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+    def focus_unfocus(self, focused):
+        pass
+class AddedContent_Size(AddedContent_PreP):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+        self.allowed_btn_list.remove("hide_show")
+        two_products_list = ["{0}(x) x {1}(y)".format(product_x, product_y) for product_x, product_y in zip(*self.info["data"])]
+        self.updated_manually = True
+        self.cmbox = QComboBox()
+        self.cmbox.addItems(two_products_list)
+        self.cmbox.currentIndexChanged.connect(self.cmbox_selection_changed)
+    def widgets_to_display(self):
+        return [self.cmbox]
+    def cmbox_selection_changed(self, event):
+        if self.updated_manually:
+            product_x = self.info["data"][0][event]
+            product_y = self.info["data"][1][event]
+            self.parent_window.toolbar_layout.set_size(size=[product_x, product_y, 1])
+    def set_item_fm_size(self, product_x, product_y):
+        self.updated_manually = False
+        idx = self.cmbox.findText("{0}(x) x {1}(y)".format(product_x, product_y))
+        self.cmbox.setCurrentIndex(idx)
+        self.updated_manually = True
+class AddedContent_CRR(AddedContent_PreP):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+        self.allowed_btn_list.append("revert")
+    def hide_show_item(self, show=None):
+        # map
+        if show is not None:
+            if show:
+                self.parent_window.map_widget.overlay_img.setImage(self.item.image())
+            isVisible = not show
+        else:
+            isVisible = self.parent_window.map_widget.overlay_img.isVisible()
+        if not isVisible:
+            self.parent_window.cur_overlayed_map_info = self.info
+        else:
+            pass
+        # map, spectrum の表示非表示
+        self.parent_window.map_widget.overlay_img.setVisible(not isVisible)
+        for line in self.parent_window.spectrum_widget.overlayed_lines:
+            line.setVisible(not isVisible)
+    def remove_item(self, mode=None):
+        log = self.parent_window.toolbar_layout.CRR_master(ask=True, mode=mode)
+        if log == "not executed":
+            return log
+        self.parent_window.toolbar_layout.added_content_preprocess_list.remove(self)
+class AddedContent_NR(AddedContent_PreP):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+        self.allowed_btn_list.remove("hide_show")
+        self.allowed_btn_list.append("revert")
+    def remove_item(self, mode=None):
+        log = self.parent_window.toolbar_layout.NR_master(ask=True, mode=mode)
+        if log == "not executed":
+            return log
+    def hide_show_item(self, show=None):
+        pass
+class AddedContent_SCL(AddedContent_PreP):
+    def __init__(self, item, info=None, parent_window=None):
+        super().__init__(item, info, parent_window)
+        self.allowed_btn_list.remove("hide_show")
+        self.allowed_btn_list.append("revert")
+        # 調整 widget
+        self.scl_label = QLabel("   scaling: ")
+        self.wid_label = QLabel("   g-width: ")
+        self.scl_var = QDoubleSpinBox()
+        self.scl_var.setDecimals(4)
+        self.scl_var.setMinimum(0.5)
+        self.scl_var.setMaximum(1.5)
+        self.scl_var.setValue(1)
+        self.wid_var = QDoubleSpinBox()
+        self.wid_var.setDecimals(1)
+        self.wid_var.setMinimum(0)
+        self.wid_var.setMaximum(100)
+        self.wid_var.setValue(0)
+        # イベントコネクト
+        self.scl_var.valueChanged.connect(self.scl_var_changed)
+        self.wid_var.valueChanged.connect(self.wid_var_changed)
+    def widgets_to_display(self):
+        return [self.scl_label, self.scl_var, self.wid_label, self.wid_var]
+    def remove_item(self, mode=None):
+        log = self.parent_window.toolbar_layout.SCL_master(ask=True, mode=mode)
+        if log == "not executed":
+            return log
+    def hide_show_item(self, show=None):
+        pass
+    def scl_var_changed(self, event):
+        print(event)
+    def wid_var_changed(self, event):
+        print(event)
 # class containing information about spectrum unmixing
 class UnmixedData():
-    def __init__(self, standard_type, abs_id, n_th_components, umx_x_list, umx_y_matrix, umx_h_matrix):
-        self.standard_type = standard_type   # index, bd (baseline drift), ts (total signal)
+    def __init__(self, abs_id, standard_type, umx_x_list, umx_y_matrix, umx_h_matrix):
         self.abs_id = abs_id
-        self.n_th_components = n_th_components  # (idx, n_components)
-        self.umx_x_list = umx_x_list        # umx_x_lislt.shape = (,n_data_points)
-        self.umx_y_matrix = umx_y_matrix    # umx_y_matrix.shape = (n_data_points, n_spectrum)
-        self.umx_h_matrix = umx_h_matrix    # umx_h_matrix.shape = (fnsub, n_spectrum)
-    def get_sum_data(self, sub_idx):
-        return (self.umx_y_matrix * self.umx_h_matrix[sub_idx]).sum(axis=1)
-    def get_first_data(self, sub_idx):
-        return self.umx_y_matrix[:, 0] * self.umx_h_matrix[sub_idx, 0]
-    def get_btm_curves(self, sub_idx):
-        if self.standard_type in ("ts", "bd"):
-            return pg.PlotDataItem([self.umx_x_list[0], self.umx_x_list[-1]], [0, 0])
+        self.standard_type = standard_type   # std(1スタートのindex), "bd", or "ts" (baseline drift, total signal)
+        self.umx_x_list = umx_x_list        # umx_x_list.shape = (,n_data_points)
+        self.umx_y_matrix = umx_y_matrix    # umx_y_matrix.shape = (n_data_points, n_spectrum + 1)  ※ bdがプラスマイナスで重複しているため
+        self.umx_h_matrix = umx_h_matrix    # umx_h_matrix.shape = (fnsub, n_spectrum + 1)          ※ bdがプラスマイナスで重複しているため
+    def N_lines(self):
+        return self.umx_y_matrix.shape[1] - 1 # ts, bd
+    def N_ranges(self):
+        return 1
+    def format_data(self):
+        return "#{0}".format(self.standard_type)
+    def get_y_data_matrix(self, sub_idx):
+        y_matrix = self.umx_y_matrix * self.umx_h_matrix[sub_idx]
+        bd_matrix = y_matrix[:, -3:].sum(axis=1, keepdims=True)
+        y_data_matrix = np.empty((len(self.umx_x_list), self.N_lines()), dtype=float)
+        y_data_matrix[:, :-2] = y_matrix[:, :-3] + bd_matrix
+        y_data_matrix[:, -2]  = bd_matrix[:, 0]
+        y_data_matrix[:, -1]  = y_matrix.sum(axis=1)
+        return y_data_matrix
+    def get_line_data_list(self, sub_idx, original_spc_file):
+        return [(self.umx_x_list, y_data) for y_data in self.get_y_data_matrix(sub_idx).T]
+    def get_region_data_list(self, sub_idx, original_spc_file):
+        y_matrix = self.umx_y_matrix * self.umx_h_matrix[sub_idx]
+        if self.standard_type in ("bd", "ts"):
+            btm_line = pg.PlotDataItem(self.umx_x_list[[0, -1]], [0, 0])
         else:
-            baseline_drift_left = (self.umx_y_matrix[0, 1:] * self.umx_h_matrix[sub_idx, 1:]).sum()
-            baseline_drift_right = (self.umx_y_matrix[-1, 1:] * self.umx_h_matrix[sub_idx, 1:]).sum()
-            return pg.PlotDataItem([self.umx_x_list[0], self.umx_x_list[-1]], [baseline_drift_left, baseline_drift_right])
+            btm_line = pg.PlotDataItem(self.umx_x_list[[0, -1]], y_matrix[[0, -1], -3:].sum(axis=1))
+        if self.standard_type == "bd":
+            top_line = pg.PlotDataItem(self.umx_x_list, y_matrix[:, -3:].sum(axis=1))
+        elif self.standard_type == "ts":
+            top_line = pg.PlotDataItem(self.umx_x_list, y_matrix.sum(axis=1))
+        else:
+            top_line = pg.PlotDataItem(self.umx_x_list, y_matrix[:, [int(self.standard_type)-1, -3, -2, -1]].sum(axis=1))
+        return [(btm_line, top_line)]
 class SubtractionData():
-    def __init__(self, abs_id, x_minmax1, master_x_list1, added_y_list1, umx_h_list):
-        self.abs_id = abs_id
+    def __init__(self, x_minmax1, master_x_list1, added_y_list1, sub_h_list):
         self.x_minmax1 = x_minmax1
         self.master_x_list1 = master_x_list1
         self.added_y_list1 = added_y_list1
-        self.umx_h_list = umx_h_list        # len: (spc_file.fnxub)  
+        self.sub_h_list = sub_h_list        # len: (spc_file.fnxub)  
+    def N_lines(self):
+        return 1
+    def N_ranges(self):
+        return 1
+    def format_data(self):
+        return "#1"
+    def get_line_data_list(self, sub_idx, original_spc_file):
+        return [self.get_data(sub_idx, original_spc_file)]
+    def get_region_data_list(self, sub_idx, original_spc_file):
+        btm_line = pg.PlotDataItem(self.master_x_list1[[0, -1]], [0, 0])
+        top_line = pg.PlotDataItem(*self.get_line_data_list(sub_idx, original_spc_file)[0])
+        return [(btm_line, top_line)]
     def get_data(self, sub_idx, original_spc_file):
-        original_x_data, original_y_data = original_spc_file.get_data(self.x_minmax1[0], self.x_minmax1[1], sub_idx=sub_idx)
-        subtracted_y_list = original_y_data + self.added_y_list1 * self.umx_h_list[sub_idx]
+        original_x_data, original_y_data = original_spc_file.get_data(*self.x_minmax1, sub_idx=sub_idx)
+        subtracted_y_list = original_y_data + self.added_y_list1 * self.sub_h_list[sub_idx]
         return self.master_x_list1, subtracted_y_list
-    def get_btm_curves(self):
-        return pg.PlotDataItem([self.master_x_list1[0], self.master_x_list1[-1]], [0, 0])
+class CRR_Data():
+    def __init__(self):
+        pass
+    def N_lines(self, sub_idx):
+        return 1
+    def N_ranges(self, sub_idx):
+        return 0
+    def format_data(self):
+        ""
+    def get_line_data_list(self, sub_idx, original_spc_file):
+        # CRRされたスペクトル
+        cosmic_ray_locs = original_spc_file.log_dict.get(b"cosmic_ray_locs", [])
+        if sub_idx not in cosmic_ray_locs:
+            return [([], [], {"connect":[]})]
+        selected_se_idx_set, TopBottomLeftRight_idxes, original_data_set = cosmic_ray_locs[sub_idx]
+        crr_x_list = np.empty(0, dtype=float)
+        crr_y_list = np.empty(0, dtype=float)
+        crr_connection = np.empty(0, dtype=float)
+        for (s_idx, e_idx), original_data in zip(selected_se_idx_set, original_data_set):
+            # 両サイドに広げる
+            if 0 <= s_idx-1:
+                try:
+                    crr_x_list = np.hstack((crr_x_list, original_spc_file.x[s_idx-1:e_idx+2]))
+                    crr_y_list = np.hstack((crr_y_list, original_spc_file.sub[sub_idx].y[s_idx-1], original_data, original_spc_file.sub[sub_idx].y[e_idx+1]))
+                    crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 2) + [False]))
+                # end 側が飛び出ている場合をケア
+                except:
+                    crr_x_list = np.hstack((crr_x_list, original_spc_file.x[s_idx-1:e_idx+1]))
+                    crr_y_list = np.hstack((crr_y_list, original_spc_file.sub[sub_idx].y[s_idx-1], original_data))
+                    crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
+            # start 側が飛びてている場合をケア
+            else:
+                crr_x_list = np.hstack((crr_x_list, original_spc_file.x[s_idx:e_idx+2]))
+                crr_y_list = np.hstack((crr_y_list, original_data, original_spc_file.sub[sub_idx].y[e_idx+1]))
+                crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
+        return [(crr_x_list, crr_y_list, {"connect":crr_connection})]
+    def get_region_data_list(self, sub_idx, original_spc_file):
+        return []
+
+
+    # def display_additional_spectrum(self, sub_idx):
+    #     # CRRされたスペクトル
+    #     cosmic_ray_locs = self.spc_file.log_dict.get(b"cosmic_ray_locs", [])
+    #     if sub_idx in cosmic_ray_locs:
+    #         selected_se_idx_set, TopBottomLeftRight_idxes, original_data_set = cosmic_ray_locs[sub_idx]
+    #         crr_x_list = np.empty(0, dtype=float)
+    #         crr_y_list = np.empty(0, dtype=float)
+    #         crr_connection = np.empty(0, dtype=float)
+    #         for (s_idx, e_idx), original_data in zip(selected_se_idx_set, original_data_set):
+    #             # 両サイドに広げる
+    #             if 0 <= s_idx-1:
+    #                 try:
+    #                     crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+2]))
+    #                     crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
+    #                     crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 2) + [False]))
+    #                 # end 側が飛び出ている場合をケア
+    #                 except:
+    #                     crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+1]))
+    #                     crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data))
+    #                     crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
+    #             # start 側が飛びてている場合をケア
+    #             else:
+    #                 crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx:e_idx+2]))
+    #                 crr_y_list = np.hstack((crr_y_list, original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
+    #                 crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
+    #         self.added_items_dict["CRR items"].setData(x=crr_x_list, y=crr_y_list, connect=crr_connection)
+    #     else:
+    #         self.added_items_dict["CRR items"].setData()
+
 # スペクトル操作ツールバー
 class ToolbarLayout(QVBoxLayout):
     def __init__(self, window_type, parent=None):
@@ -268,9 +470,9 @@ class ToolbarLayout(QVBoxLayout):
         map_layout = QVBoxLayout()
         spectrum_layout = QVBoxLayout()
         # 追加された画像・スペクトルはここへ
-        self.added_map_info_list = []
-        self.added_spectrum_info_list = []
-        self.added_spectrums_info_list = []
+        self.added_content_map_list = []
+        self.added_content_spectrum_list = []
+        self.added_content_preprocess_list = []
         # マップスペクトルウィンドウのみで表示するもボタンたち
         if window_type == "ms": # map & spectrum
             # シグナル強度
@@ -303,24 +505,6 @@ class ToolbarLayout(QVBoxLayout):
             unmix_action_func_list=[self.unmix_with_method]
             menu = my_w.CustomContextMenu(parentBtn=btnUnmixing, action_name_list=unmix_action_name_list, action_func_list=unmix_action_func_list)
             btnUnmixing.customContextMenuRequested.connect(functools.partial(my_w.on_context_menu, menu=menu))
-            # 宇宙線除去
-            btnCosmicRayRemoval = my_w.CustomPicButton("CRR1.svg", "CRR2.svg", "CRR3.svg", base_path=gf.icon_path)
-            btnCosmicRayRemoval.setToolTip("cosmic ray removal")
-            btnCosmicRayRemoval.clicked.connect(functools.partial(self.cosmic_ray_removal, ask=True))
-            # 宇宙線除去右クリックメニュー
-            btnCosmicRayRemoval.setContextMenuPolicy(Qt.CustomContextMenu)
-            crr_action_name_list=["hide/show Cosmic Rays", "Clear Detected Cosmic Rays"]
-            crr_action_func_list=[self.hide_show_cosmic_rays, self.clear_cosmic_rays]
-            menu = my_w.CustomContextMenu(parentBtn=btnCosmicRayRemoval, action_name_list=crr_action_name_list, action_func_list=crr_action_func_list)
-            btnCosmicRayRemoval.customContextMenuRequested.connect(functools.partial(my_w.on_context_menu, menu=menu))
-            # PCAノイズフィルター
-            btnNoiseFilterPCA = my_w.CustomPicButton("NF1.svg", "NF2.svg", "NF3.svg", base_path=gf.icon_path)
-            btnNoiseFilterPCA.setToolTip("PCA based Noise Filter")
-            btnNoiseFilterPCA.clicked.connect(functools.partial(self.apply_noise_filter, ask=True))
-            # # 計算
-            # btnImageCalculator = my_w.CustomPicButton("calc1.png", "calc2.png", "calc3.png", base_path=gf.icon_path)
-            # btnImageCalculator.clicked.connect(self.launch_image_calculator)
-            # btnImageCalculator.setToolTip("launch image calculator")
             # 現在のスペクトルを追加
             btnAddCurrent = my_w.CustomPicButton("add_cur_spec1.svg", "add_cur_spec2.svg", "add_cur_spec3.svg", base_path=gf.icon_path)
             btnAddCurrent.clicked.connect(self.add_current_spectrum)
@@ -338,8 +522,6 @@ class ToolbarLayout(QVBoxLayout):
             btnSaveTarget.clicked.connect(self.save_target)
             btnSaveTarget.setToolTip("save target (crosshair)")
             # レイアウト
-            map_layout.addWidget(btnCosmicRayRemoval)
-            map_layout.addWidget(btnNoiseFilterPCA)
             map_layout.addWidget(btnSetCFP)
             map_layout.addWidget(btnSignalIntensity)
             map_layout.addWidget(btnSignalToBaseline)
@@ -425,20 +607,48 @@ class ToolbarLayout(QVBoxLayout):
         # テーブル表示ボタン
         self.addWidget(btnMapSpectTable)
         self.addStretch(1)
+    def is_file_exists(self):
+        # ファイルの有無でまずカット
+        if not os.path.exists(self.parent.file_path):
+            warning_popup = popups.WarningPopup("The original file was moved or deleted.\nMap size was not changed.", title="warning", p_type="Normal")
+            warning_popup.exec_()
+            return False
+        else:
+            return True
+    def execute_preprocess(self, mode=None):
+        if not self.is_file_exists():
+            return "not executed"
+        for func_name, kwargs in self.parent.spectrum_widget.spc_file.log_dict[b"prep_order"]:
+            func = getattr(self, func_name)
+            func(**kwargs)
+    # 基本、PrePが作られてから呼ばれる前提。
+    def add_preprocess(self, key):
+        if not self.is_file_exists():
+            return "not executed"
+        self.parent.spectrum_widget.spc_file.add_to_prep_ordred(key)
+    # PreProcesses
+    def set_size(self, size=None, mode=None):
+        if not self.is_file_exists():
+            return "not executed"
+        if mode == "init":
+            product_x_list, product_y_list = gf.into_2_products(self.parent.spectrum_widget.spc_file.fnsub)
+            added_content = AddedContent_Size(
+                item=None,
+                info={"content":"preprocess", "type":"SIZE", "detail":"", "draw":"none", "data":[product_x_list, product_y_list]}, 
+                parent_window=self.parent
+            )
+            added_content.set_item_fm_size(*self.parent.spectrum_widget.spc_file.get_shape()[::-1])
+            self.add_content(added_content)
+        # アップデート用
+        else:
+            # log_dict に必ずあるはずなので、一旦消し、log_dict と バイナリに書き込む
+            self.parent.spectrum_widget.spc_file.update_binary(self.parent.file_path, master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=size, log_dict=True)
+        self.parent.map_widget.map_size_changed()
     # 何かしら追加した時作成されたオブジェクトを格納
-    def add_content(self, item, CLASS, info=None, parent_window=None):   # "map" or "spectrum", "added" or unmixed (added は vb2で、unmixed は vb1)
-        if CLASS == "Spectrum":
-            added_content = AddedContent_Spectrum(item, info, parent_window)
-        elif CLASS == "SubtractedSpectrums":
-            added_content = AddedContent_SubtractedSpectrums(item, info, parent_window)
-            self.added_spectrums_info_list.append(added_content)
-        elif CLASS == "RepresentativeCFP":
-            added_content = AddedContent_RepresentativeCFP(item, info, parent_window)
-        elif CLASS == "Map":
-            added_content = AddedContent_Map(item, info, parent_window)
-        elif CLASS == "Unmixed":
-            added_content = AddedContent_Unmixed(item, info, parent_window)
-        getattr(self, "added_%s_info_list"%added_content.info["content"]).append(added_content)
+    def add_content(self, added_content):   # "map" or "spectrum", "added" or unmixed (added は vb2で、unmixed は vb1)
+        # elif CLASS == "RepresentativeCFP":
+        #     added_content = AddedContent_RepresentativeCFP(item, info, parent_window)
+        getattr(self, "added_content_%s_list"%added_content.info["content"]).append(added_content)
         self.parent.parent.map_spect_table.add_content(added_content)
         # マップの場合、最初から表示
         if added_content.info["content"] == "map":
@@ -455,7 +665,7 @@ class ToolbarLayout(QVBoxLayout):
             # 単一スペクトルの場合
             if spc_file.fnsub == 1:
                 plot_data_item = pg.PlotDataItem(spc_file.x, spc_file.sub[0].y, fillLevel=0)
-                self.add_plot_data_item(plot_data_item, detail=file_path, values=[], data=spc_file)
+                self.add_plot_data_item(plot_data_item, detail=file_path, data="")
             else:
                 ppup = popups.WarningPopup("Error in opening '%s'\nThe file contains more than 1 spectrum"%file_path)
                 ppup.exec_()
@@ -463,19 +673,16 @@ class ToolbarLayout(QVBoxLayout):
     def add_current_spectrum(self):
         plot_data_item = self.parent.spectrum_widget.get_current_plot_data_item()
         # テーブルに追加
-        self.add_plot_data_item(
-            plot_data_item, 
-            detail="from_data", 
-            values=[self.parent.spectrum_widget.cur_x, self.parent.spectrum_widget.cur_y]
-            )
-    def add_plot_data_item(self, plot_data_item, detail, values, data=None):
+        self.add_plot_data_item(plot_data_item, detail="from_data", data=[self.parent.spectrum_widget.cur_x, self.parent.spectrum_widget.cur_y])
+    def add_plot_data_item(self, plot_data_item, detail, data):
         # ボタン追加
         self.parent.spectrum_widget.add_spectrum_to_v2(plot_data_item)
         self.add_content(
-            plot_data_item, 
-            CLASS = "Spectrum",
-            info={"content":"spectrum", "type":"added", "detail":detail, "values":values, "data":data}, 
-            parent_window=self.parent, 
+            AddedContent_Spectrum(
+                plot_data_item,
+                info={"content":"spectrum", "type":"added", "detail":detail, "draw":"static", "data":data}, 
+                parent_window=self.parent
+            )
         )
     # build unmix method 専用
     def include_CellFreePosition(self):
@@ -558,10 +765,11 @@ class ToolbarLayout(QVBoxLayout):
             image2D = self.parent.spectrum_widget.signal_intensity(RS)
             # ボタン追加
             self.add_content(
-                image2D, 
-                CLASS="Map", 
-                info={"content":"map", "type":"added", "detail":"signal_intensity", "values":[RS]}, 
-                parent_window=self.parent
+                AddedContent_Map(
+                    image2D, 
+                    info={"content":"map", "type":"added", "detail":"signal_intensity", "draw":"v_line", "data":[RS, "0", "master"]}, 
+                    parent_window=self.parent
+                )                
             )
     def execute_signal_to_baseline(self, event=None, ask=True, RS_set=None):
         # 範囲を決める
@@ -579,10 +787,11 @@ class ToolbarLayout(QVBoxLayout):
             image2D = self.parent.spectrum_widget.signal_to_bl(RS1, RS2)
             # ボタン追加
             self.add_content(
-                image2D, 
-                CLASS="Map", 
-                info={"content":"map", "type":"added", "detail":"signal_to_baseline", "values":[RS1, RS2]}, 
-                parent_window=self.parent
+                AddedContent_Map(
+                    image2D, 
+                    info={"content":"map", "type":"added", "detail":"signal_to_baseline", "draw":"range", "data":[RS1, RS2, "end2end", "master"]}, 
+                    parent_window=self.parent
+                )
             )
     def execute_signal_to_H_baseline(self, event=None, ask=True, RS_set=None):
         # 範囲を決める
@@ -600,10 +809,11 @@ class ToolbarLayout(QVBoxLayout):
             image2D = self.parent.spectrum_widget.signal_to_h_bl(RS1, RS2)
             # ボタン追加
             self.add_content(
-                image2D, 
-                CLASS="Map", 
-                info={"content":"map", "type":"added", "detail":"signal_to_H_baseline", "values":[RS1, RS2]}, 
-                parent_window=self.parent
+                AddedContent_Map(
+                    image2D, 
+                    info={"content":"map", "type":"added", "detail":"signal_to_H_baseline", "draw":"range", "data":[RS1, RS2, "minimum", "master"]}, 
+                    parent_window=self.parent
+                )
             )
     def execute_signal_to_axis(self, event=None, ask=True, RS_set=None):
         # 範囲を決める
@@ -621,10 +831,11 @@ class ToolbarLayout(QVBoxLayout):
             image2D = self.parent.spectrum_widget.signal_to_axis(RS1, RS2)
             # ボタン追加
             self.add_content(
-                image2D, 
-                CLASS="Map", 
-                info={"content":"map", "type":"added", "detail":"signal_to_axis", "values":[RS1, RS2]}, 
-                parent_window=self.parent
+                AddedContent_Map(
+                    image2D, 
+                    info={"content":"map", "type":"added", "detail":"signal_to_axis", "draw":"range", "data":[RS1, RS2, "0", "master"]}, 
+                    parent_window=self.parent
+                )
             )
     # アンミックス
     def execute_unmixing(self):
@@ -641,10 +852,10 @@ class ToolbarLayout(QVBoxLayout):
             self.parent.spectrum_widget.replace_spectrum(0, 0)
             self.parent.map_widget.set_crosshair(0, 0)
             # アンミックスされたものの最初のものを表示
-            abs_id = self.added_map_info_list[-1].info["data"].abs_id
-            for added_map_info in self.added_map_info_list:
+            abs_id = self.added_content_map_list[-1].info["data"][2].abs_id
+            for added_map_info in self.added_content_map_list:
                 if added_map_info.info["type"] == "unmixed":
-                    if added_map_info.info["data"].abs_id == abs_id:
+                    if added_map_info.info["data"][2].abs_id == abs_id:
                         self.parent.parent.map_spect_table.focus_map(added_map_info)
                         break
     def unmix_with_method(self, btn=None, file_path=None):
@@ -657,8 +868,8 @@ class ToolbarLayout(QVBoxLayout):
             self.parent.spectrum_widget.replace_spectrum(0, 0)
             self.parent.map_widget.set_crosshair(0, 0)
             # アンミックスされたものの最初のものを表示
-            abs_id = self.added_map_info_list[-1].info["data"].abs_id
-            for added_map_info in self.added_map_info_list:
+            abs_id = self.added_content_map_list[-1].info["data"].abs_id
+            for added_map_info in self.added_content_map_list:
                 if added_map_info.info["type"] == "unmixed":
                     if added_map_info.info["data"].abs_id == abs_id:
                         self.parent.parent.map_spect_table.focus_map(added_map_info)
@@ -668,8 +879,8 @@ class ToolbarLayout(QVBoxLayout):
             gf.save_settings_file()
     def execute_spectrum_linear_subtraction(self, btn=None, to_zero=False, ask=True, RS_set=None):
         # チェック
-        added_content_list = [added_spectrum_info for added_spectrum_info in self.added_spectrum_info_list 
-            if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
+        added_content_list = [added_content_spectrum for added_content_spectrum in self.added_content_spectrum_list 
+            if added_content_spectrum.item.isVisible() and (added_content_spectrum.info["type"] == "added")]
         if len(added_content_list) > 1 or len(added_content_list) == 0:
             # v2 に表示されてるスペクトルが無ければ無効
             warning_popup = popups.WarningPopup("Exactly 1 added spectrum (blue spectrum) should be displayed!")
@@ -694,88 +905,219 @@ class ToolbarLayout(QVBoxLayout):
             self.parent.spectrum_widget.replace_spectrum(0, 0)
             self.parent.map_widget.set_crosshair(0, 0)
     # 宇宙線除去
-    def cosmic_ray_removal(self, ask=True):
-        # 既に一度書かれていたら、一度 CRR を削除
-        file_path, log = self.clear_cosmic_rays(ask=ask)
-        if log == "CRR clear canceled":
-            return
+    def CRR_master(self, ask=True, mode="init"):  # mode = "just revert", or "update"...
+        if not self.is_file_exists():
+            return "not executed"
+        # log_dict と バイナリから削除
+        if mode == "just revert":
+            if b'[CRR]' in self.parent.spectrum_widget.spc_file.log_other:
+                warning_popup = popups.WarningPopup("Do you really want to modify Removed Cosmic Rays?", title="warning", p_type="Bool")
+                done = warning_popup.exec_()
+                if done == 65536:   # No
+                    return "not executed"
+                else:
+                    self.revert_CRR()
+                    return "executed"
+            else:
+                warning_popup = popups.WarningPopup("No history of CRR.\nCannot be reverted.", title="warning", p_type="Normal")
+                warning_popup.exec_()
+                return "not executed"
+        # log_dict と バイナリを刷新
+        elif mode == "update":
+            # log_dict と バイナリを削除してよいか確認
+            if b'[CRR]' in self.parent.spectrum_widget.spc_file.log_other:
+                warning_popup = popups.WarningPopup("Do you really want to modify Removed Cosmic Rays?", title="warning", p_type="Bool")
+                done = warning_popup.exec_()
+                if done == 65536:   # No
+                    return "not executed"
+                else:
+                    self.revert_CRR()
+            # log_dict と バイナリを登録
+            self.apply_CRR()
+            # master_spectrum を更新
+            crrc.replace_cosmic_ray(self.parent.spectrum_widget.spc_file)
+        elif mode == "init":
+            # master_spectrum を更新
+            crrc.replace_cosmic_ray(self.parent.spectrum_widget.spc_file)
+        # マップイメージ処理
+        map_x = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_x"])
+        map_y = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_y"])
+        image2d_color = np.zeros((map_x, map_y, 4), dtype=int)
+        for sub_idx in self.parent.spectrum_widget.spc_file.log_dict[b"cosmic_ray_locs"].keys():
+            cur_y, cur_x = divmod(sub_idx, map_x)
+            image2d_color[cur_x, cur_y, :] = [255, 0, 0, 255]
+        image2D_color = Image2D_color(image2d_color, name="CRR")
+        # ボタン用意
+        added_content = AddedContent_CRR(
+            item=image2D_color, 
+            info={"content":"preprocess", "type":"CRR", "detail":"defaut settings", "draw":"spc_overlay", "data":[None, None, CRR_Data()]}, 
+            parent_window=self.parent
+        )
+        self.add_content(added_content)
+        # focus/unfocus で表示される map とは違って、hide/show で表示されるかが切り替わる。最初は hide されてるので、表示する。
+        added_content.hide_show_item(show=True)
+    def apply_CRR(self):
         # プログレスバー処理
         self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Detecting cosmic rays... please wait.", real_value_max=self.parent.spectrum_widget.spc_file.fnpts)
         self.pbar_widget.show()
         segment_list = self.pbar_widget.get_segment_list(self.parent.spectrum_widget.spc_file.fnpts, segment=96)
         # 空間情報も含め、宇宙線を検出・除去する。
         cosmic_ray_locs, CRR_params = crrc.locate_cosmic_ray(self.parent.spectrum_widget.spc_file, pbar=self.pbar_widget, segment_list=segment_list)
-        # 書き込むだけ（計算は既に終了している）オブジェクト中の data もアップデートされる（ただし元ファイル情報は保持したままである）
+        # 書き込む（計算は既に終了している）オブジェクト中の data もアップデートされる
         self.pbar_widget.setLabel("Applying views...")
         self.pbar_widget.addValue(1)
-        self.parent.spectrum_widget.spc_file.CRR(file_path, cosmic_ray_locs, CRR_params)
-        self.apply_CRR()
+        self.parent.spectrum_widget.spc_file.write_to_binary(
+            self.parent.file_path, 
+            master_key="CRR", 
+            key_list=["cosmic_ray_locs", "cosmic_ray_removal_params"], 
+            data_list=[cosmic_ray_locs, CRR_params],
+            log_dict=True
+        )
+        # PreProcess にも追加
+        self.parent.spectrum_widget.spc_file.modify_prep_order(
+            self.parent.file_path, 
+            mode="append", 
+            key="CRR_master", 
+            kwargs={"ask":False, "mode":"init"}, 
+            log_dict=True
+        )
         # プログレスバー閉じる
         self.pbar_widget.is_close_allowed = True
         self.pbar_widget.close()
-    def apply_CRR(self):
-        # マップイメージ
-        map_x = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_x"])
-        map_y = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_y"])
-        image_data3d = np.zeros((map_x, map_y, 4), dtype=int)
-        for sub_idx in self.parent.spectrum_widget.spc_file.log_dict[b"cosmic_ray_locs"].keys():
-            cur_y, cur_x = divmod(sub_idx, map_x)
-            image_data3d[cur_x, cur_y, :] = [255, 0, 0, 255]
-        self.parent.map_widget.crr_img.setImage(image_data3d)
-    def hide_show_cosmic_rays(self, btn=None):
-        try:
-            # スペクトル
-            spc_item = self.parent.spectrum_widget.added_items_dict["CRR items"]
-            spc_item.setVisible(not spc_item.isVisible())
-            # マップ
-            map_item = self.parent.map_widget.crr_img
-            map_item.setVisible(not map_item.isVisible())
-        except:
-            pass
-    def clear_cosmic_rays(self, btn=None, ask=True):
-        dir_path = self.parent.dir_path
-        file_name = self.parent.file_name
-        file_path = os.path.join(dir_path, file_name)
-        if b'cosmic_ray_locs' not in self.parent.spectrum_widget.spc_file.log_dict:
-            return file_path, "CRR not set"
-        if ask:
-            warning_popup = popups.WarningPopup("Cosmic rays are already detected.\nAre you really sure to modify them?", title="warning", p_type="Bool")
-            done = warning_popup.exec_()
-            if done == 65536:
-                return None, "CRR clear canceled"
-            else:
-                pass
+    def revert_CRR(self):
         # オリジナルのデータを回復する
-        self.parent.spectrum_widget.spc_file.clear_CRR_fm_object()
-        gf.clear_CRR_fm_binary(file_path=file_path)
-        # マップイメージ
+        crrc.restore_cosmic_ray(self.parent.spectrum_widget.spc_file)
+        # バイナリから削除
+        self.parent.spectrum_widget.spc_file.delete_from_binary(
+            self.parent.file_path, 
+            master_key="CRR", 
+            key_list=["cosmic_ray_locs", "cosmic_ray_removal_params"], 
+            log_dict=True
+        )
+        # PreProcess からも削除
+        self.parent.spectrum_widget.spc_file.modify_prep_order(
+            self.parent.file_path, 
+            mode="remove", 
+            key="CRR_master", 
+            kwargs=None, 
+            log_dict=True
+        )
+        # マップイメージを初期化
         map_x = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_x"])
         map_y = int(self.parent.spectrum_widget.spc_file.log_dict[b"map_y"])
-        self.parent.map_widget.crr_img.setImage(np.zeros((map_x, map_y, 4), dtype=int))
-        # スペクトル
+        self.parent.map_widget.overlay_img.setImage(np.zeros((map_x, map_y, 4), dtype=int))
+        self.parent.spectrum_widget.hide_all_lines_overlayed()
+        # スペクトル、クロスヘア
         self.parent.spectrum_widget.replace_spectrum(0, 0)
-        # クロスヘア
         self.parent.map_widget.set_crosshair(0, 0)
-        return file_path, "CRR cleared"
     # ノイズフィルタ
-    def apply_noise_filter(self, ask=True, N_components=100):
-        if ask:
-            noise_filter_popup = popups.ValueSettingsPopup(parent=self, initial_value=N_components, label="Number of\nComponent", double=False)
+    def NR_master(self, ask=True, mode=None): # mode = "init", "just revert", or "update"...
+        if not self.is_file_exists():
+            return "not executed"
+        # log_dict とバイナリから削除
+        if mode == "just revert":
+            if b'[NR]' in self.parent.spectrum_widget.spc_file.log_other:
+                warning_popup = popups.WarningPopup("Do you really want to modify Noise Reduction?", title="warning", p_type="Bool")
+                done = warning_popup.exec_()
+                if done == 65536:   # No
+                    return "not executed"
+                else:
+                    self.revert_NR()
+                    return "executed"
+            else:
+                warning_popup = popups.WarningPopup("No history of Noise Reduction.\nCannot be reverted.", title="warning", p_type="Normal")
+                warning_popup.exec_()
+                return "not executed"
+        # log_dict と バイナリを刷新
+        elif mode == "update":
+            # log_dict と バイナリを削除してよいか確認
+            if b'[NR]' in self.parent.spectrum_widget.spc_file.log_other:
+                warning_popup = popups.WarningPopup("Do you really want to modify Noise Reduction?", title="warning", p_type="Bool")
+                done = warning_popup.exec_()
+                if done == 65536:   # No
+                    return "not executed"
+                else:
+                    self.revert_NR()
+            # パラメータ設定
+            noise_filter_popup = popups.ValueSettingsPopup(parent=self, initial_value=self.parent.spectrum_widget.spc_file.log_dict.get(b"noise_reduction_params", 100), label="Number of\nComponent", double=False)
             done = noise_filter_popup.exec_()
-            N_components = noise_filter_popup.spbx_RS.value()
-        else:
-            done = 1
-        if done:
-            self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Noise reduction is in progress... please wait.")
-            self.pbar_widget.show()
-            self.pbar_widget.addValue(10)
-            nfc.PCA_based_NF(self.parent.spectrum_widget.spc_file, N_components=N_components)
-            self.pbar_widget.addValue(90)
-            self.pbar_widget.is_close_allowed = True
-            self.pbar_widget.close()
+            if done == 0:   # Cancel
+                return "not executed"
+            # log_dict とバイナリへ登録
+            self.apply_NR(noise_filter_popup.spbx_RS.value())
+            # master_spectrum を更新
+            N_components = nfc.PCA_based_NR(self.parent.spectrum_widget.spc_file)
+        elif mode == "init":
+            pass
+            # master_spectrum を更新
+            N_components = nfc.PCA_based_NR(self.parent.spectrum_widget.spc_file)
+        # ボタン追加
+        self.add_content(
+            AddedContent_NR(
+                item=None, 
+                info={"content":"preprocess", "type":"NR", "detail":"PCA-based", "draw":"none", "data":N_components}, 
+                parent_window=self.parent
+            )
+        )
+        # 表示
+        self.parent.spectrum_widget.replace_spectrum(0, 0)
+        self.parent.map_widget.set_crosshair(0, 0)
+    def apply_NR(self, N_components):
+        self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Noise reduction is in progress... please wait.")
+        self.pbar_widget.show()
+        self.pbar_widget.addValue(10)
+        self.pbar_widget.addValue(90)
+        # バイナリに追加
+        self.parent.spectrum_widget.spc_file.write_to_binary(
+            self.parent.file_path, 
+            master_key="NR", 
+            key_list=["noise_reduction_params"], 
+            data_list=[{"N_components":N_components}],
+            log_dict=True
+        )
+        # PreProcess にも追加
+        self.parent.spectrum_widget.spc_file.modify_prep_order(
+            self.parent.file_path, 
+            mode="append", 
+            key="NR_master", 
+            kwargs={"ask":False, "mode":"init"}, 
+            log_dict=True
+        )
+        # プログレスバー
+        self.pbar_widget.is_close_allowed = True
+        self.pbar_widget.close()
+    def revert_NR(self):
+        # オリジnfcナルのデータを回復する
+        gf.spc_transplant(self.parent.spectrum_widget.spc_file, donor_spc=gf.open_spc_spcl(self.parent.file_path))
+        # バイナリから削除
+        self.parent.spectrum_widget.spc_file.delete_from_binary(
+            self.parent.file_path, 
+            master_key="NR", 
+            key_list=["noise_reduction_params"], 
+            log_dict=True
+        )
+        # PreProcess からも削除
+        self.parent.spectrum_widget.spc_file.modify_prep_order(
+            self.parent.file_path, 
+            mode="remove", 
+            key="NR_master", 
+            kwargs=None, 
+            log_dict=True
+        )
+        # スペクトル、クロスヘア
+        self.parent.spectrum_widget.replace_spectrum(0, 0)
+        self.parent.map_widget.set_crosshair(0, 0)
+    def SCL_master(self, ask=True, mode=None):
+        # ボタン追加
+        self.add_content(
+            AddedContent_SCL(
+                item=None, 
+                info={"content":"preprocess", "type":"SCL", "detail":"", "draw":"none", "data":""}, 
+                parent_window=self.parent
+            )
+        )
 
-            self.parent.spectrum_widget.replace_spectrum(0, 0)
-            self.parent.map_widget.set_crosshair(0, 0)
+    # 構築画像保存
     def save_all_maps(self):
         if not self.isImageSet:
             warning_popup = popups.WarningPopup("There are no generated images!")
@@ -790,7 +1132,7 @@ class ToolbarLayout(QVBoxLayout):
         FIX = self.parent.map_widget.ContrastConfigurator.FIX
         BIT = self.parent.map_widget.ContrastConfigurator.BIT
         # image2Dを取得 & コントラスト設定 & 保存
-        for added_content in self.parent.toolbar_layout.added_map_info_list:
+        for added_content in self.parent.toolbar_layout.added_content_map_list:
             image2D = added_content.item
             image2D.save_image(
                 base_name=self.parent.file_name_wo_ext, 
@@ -899,12 +1241,10 @@ class SpectrumWidget(pg.PlotWidget):
         self.spc_file = spc_file
         self.parent = parent
         # 現在地情報
-        self.cur_x = None
-        self.cur_y = None
+        self.cur_x = 0
+        self.cur_y = 0
         # used for displaying multiple spectrum set in vb2
         self.abs_id = 0
-        # 計算済みスペクトル格納庫（追加は、self.add_spectrum にて）
-        self.added_items_dict = {"CRR items": pg.PlotCurveItem(pen=gf.mk_crr_pen())}
         # カーブフィット用情報
         self.gaussian_func_coeff_set = None # shape: (self.spc_file.fnsub, 5)
         # レイアウト
@@ -929,31 +1269,27 @@ class SpectrumWidget(pg.PlotWidget):
         self.additional_fill_btwn_items = []
         self.additional_points = pg.ScatterPlotItem(size=3, pen=pg.mkPen(255, 0, 0, 255), brush=pg.mkBrush(255, 0, 0, 255))
         self.addItem(self.additional_points)
+        self.overlayed_lines = []
+        self.overlayed_fill_btwn_items = []
+        # master spectrum 用のボタンを追加
+        self.parent.toolbar_layout.add_content(
+            AddedContent_Spectrum(
+                self.master_spectrum, 
+                info={"content":"spectrum", "type":"original", "detail":"", "draw":"master", "data":""}, 
+                parent_window=self.parent
+            )
+        )
+        self.master_spectrum.setData(self.spc_file.x, self.spc_file.sub[0].y)
+        # self.added_items_dict = {"CRR items": pg.PlotCurveItem(pen=gf.mk_crr_pen())}
+        # mapの場合テキスト追加（どこの位置のスペクトルかということ）
+        if self.spc_file.fnsub > 1:
+            self.text_item = pg.TextItem(text="   x=0, y=0")
+            self.text_item.setParentItem(self.getPlotItem().vb)
     # グラフがある場合、親 widget が focus を get できない。
     def focusInEvent(self, event):
         self.parent.focusInEvent(event)
     def focusOutEvent(self, event):
         self.parent.focusOutEvent(event)
-    # 最初に何もないところへの追加
-    def open_initial(self):
-        # 初回開いたときにも追加可能
-        # 複数のスペクトルがある場合でも、最初のものが表示される
-        self.cur_x = 0
-        self.cur_y = 0
-        self.master_spectrum.setData(self.spc_file.x, self.spc_file.sub[0].y)
-        # 宇宙線追加
-        self.addItem(self.added_items_dict["CRR items"])
-        # mapの場合テキスト追加（どこの位置のスペクトルかということ）
-        if self.spc_file.fnsub > 1:
-            self.text_item = pg.TextItem(text="   x=0, y=0")
-            self.text_item.setParentItem(self.getPlotItem().vb)
-        # Toolbarからの追加ではないので、ボタンを追加する必要がある
-        self.parent.toolbar_layout.add_content(
-            self.master_spectrum, 
-            CLASS="Spectrum",
-            info={"content":"spectrum", "type":"original", "detail":"", "values":[]}, 
-            parent_window=self.parent
-        )
     def get_current_plot_data_item(self):
         current_plot = self.getPlotItem().vb.addedItems[0]
         plot_data_item = pg.PlotDataItem(current_plot.xData, current_plot.yData, fillLevel=0)
@@ -967,16 +1303,6 @@ class SpectrumWidget(pg.PlotWidget):
         plot_data_item.setPen(gf.mk_a_pen())
         self.vb2.addItem(plot_data_item)
         return plot_data_item
-    # def add_calculated_spectrum(self):
-    #     # スペクトル描画用のplot_data_item作成：background引き算したいときとかは、係数（self.height_list_set）の方で調節してください
-    #     spectrum = pg.PlotDataItem()
-    #     spectrum.setData(self.umx_x_list, (self.umx_y_matrix * self.umx_height_matrix).sum(axis=1))
-    #     spectrum.setPen(gf.mk_u_pen())
-    #     self.addItem(spectrum)
-    #     self.added_items_dict.setdefault("calculated spectrum items", [])
-    #     self.added_items_dict["calculated spectrum items"].append(spectrum)
-    #     return spectrum
-
     # mapデータ用。別の位置のspectrumを表示する
     def replace_spectrum(self, map_x, map_y):
         # 場所情報の更新
@@ -988,7 +1314,6 @@ class SpectrumWidget(pg.PlotWidget):
         y_list = self.spc_file.sub[sub_idx].y
         self.master_spectrum.setData(self.spc_file.x, y_list)
         self.display_map_spectrum()
-        self.display_additional_spectrum(sub_idx)
     def set_N_additional_lines(self, N):
         N_additional_lines = len(self.additional_lines)
         if N_additional_lines < N:
@@ -1015,6 +1340,32 @@ class SpectrumWidget(pg.PlotWidget):
                 self.removeItem(deleted_item)
         for content in self.additional_fill_btwn_items:
             content.show()
+    def set_N_overlayed_lines(self, N):
+        N_overlayed_lines = len(self.overlayed_lines)
+        if N_overlayed_lines < N:
+            for idx in range(N - N_overlayed_lines):
+                overlayed_lines = pg.PlotCurveItem(pen=gf.mk_u_pen())
+                self.overlayed_lines.append(overlayed_lines)
+                self.addItem(overlayed_lines)
+        elif N_overlayed_lines > N:
+            for idx in range(N_overlayed_lines - N):
+                deleted_item = self.overlayed_lines.pop(0)
+                self.removeItem(deleted_item)
+        for content in self.overlayed_lines:
+            content.show()
+    def set_N_overlayed_fill_btwn_items(self, N):
+        N_overlayed_fill_btwn_items = len(self.overlayed_fill_btwn_items)
+        if N_overlayed_fill_btwn_items < N:
+            for idx in range(N - N_overlayed_fill_btwn_items):
+                overlayed_fill_btwn_item = pg.FillBetweenItem(brush=gf.mk_u_brush())
+                self.overlayed_fill_btwn_items.append(overlayed_fill_btwn_item)
+                self.addItem(overlayed_fill_btwn_item)
+        elif N_overlayed_fill_btwn_items > N:
+            for idx in range(N_overlayed_fill_btwn_items - N):
+                deleted_item = self.overlayed_fill_btwn_items.pop(0)
+                self.removeItem(deleted_item)
+        for content in self.overlayed_fill_btwn_items:
+            content.show()
     def hide_all_fill_btwn_items(self):
         for content in self.additional_fill_btwn_items:
             content.hide()
@@ -1023,6 +1374,12 @@ class SpectrumWidget(pg.PlotWidget):
             content.hide()
     def hide_all_points(self):
         self.additional_points.hide()
+    def hide_all_fill_btwn_items_overlayed(self):
+        for content in self.overlayed_fill_btwn_items:
+            content.hide()
+    def hide_all_lines_overlayed(self):
+        for content in self.overlayed_lines:
+            content.hide()
     def show_all_fill_btwn_items(self):
         for content in self.additional_fill_btwn_items:
             content.show()
@@ -1031,165 +1388,76 @@ class SpectrumWidget(pg.PlotWidget):
             content.show()
     def show_all_points(self):
         self.additional_points.show()
+    def show_all_fill_btwn_items_overlayed(self):
+        for content in self.overlayed_fill_btwn_items:
+            content.show()
+    def show_all_lines_overlayed(self):
+        for content in self.overlayed_lines:
+            content.show()
     # Process items to display in vb1
     def display_map_spectrum(self):
-        # map info
-        if self.parent.cur_displayed_map_info is None:
-            # umx_methodから呼ばれたときは、background を設定する際、mapを指定せずにreplace_spectrumするので、これが呼ばれてしまう。
-            return
-        values = self.parent.cur_displayed_map_info["values"]
         sub_idx = self.spc_file.get_sub_idx(self.cur_x, self.cur_y)
-        if self.parent.cur_displayed_map_info["type"] == "unmixed":
-            # ここから登録作業開始
-            umx_data = self.parent.cur_displayed_map_info["data"]
-            # draw all unmixed lines
-            self.set_N_additional_lines(umx_data.n_th_components[1])
-            total_y_list = np.zeros_like(umx_data.umx_x_list)
-            for added_content in self.parent.toolbar_layout.added_map_info_list:
-                if added_content.info["type"] != "unmixed":
-                    continue
-                if added_content.info["data"].abs_id != umx_data.abs_id:
-                    continue
-                # when it is not total signal
-                if added_content.info["data"].standard_type != "ts":
-                    idx = added_content.info["data"].n_th_components[0]
-                    self.additional_lines[idx].setData(
-                        added_content.info["data"].umx_x_list, 
-                        added_content.info["data"].get_sum_data(sub_idx)
-                        )
-                    self.additional_lines[idx].show()
-                    total_y_list += added_content.info["data"].get_first_data(sub_idx)
-                # when it is the total signal
-                else:
-                    umx_data_total = added_content.info["data"]
-            # calc total signal # total signal が未設定の場合でも、added_map_info_list に追加された時点で display_map_specrum が走っちゃうので、例外処理
-            try:
-                idx = umx_data_total.n_th_components[0]
-                self.additional_lines[idx].setData(
-                    umx_data_total.umx_x_list, 
-                    umx_data_total.get_sum_data(sub_idx) + total_y_list
-                    )
-                self.additional_lines[idx].show()
-                # draw fill between item
-                self.set_N_additional_fill_btwn_items(1)
-                self.additional_fill_btwn_items[0].setCurves(umx_data.get_btm_curves(sub_idx), self.additional_lines[umx_data.n_th_components[0]])
-                self.additional_fill_btwn_items[0].show()
-            except:
-                pass
-        elif self.parent.cur_displayed_map_info["type"] == "subtracted":
-            # ここから登録作業開始
-            subtraction_data = self.parent.cur_displayed_map_info["data"]
-            master_x_list1, subtracted_y_list = subtraction_data.get_data(sub_idx, self.spc_file)
-            # draw a subtracted line
-            self.set_N_additional_lines(1)
-            self.additional_lines[0].setData(
-                master_x_list1, 
-                subtracted_y_list
-            )
-            self.additional_lines[0].show()            
-            # fill between item
-            self.set_N_additional_fill_btwn_items(1)
-            self.additional_fill_btwn_items[0].setCurves(subtraction_data.get_btm_curves(), self.additional_lines[0])
-            self.additional_fill_btwn_items[0].show()
-        elif self.parent.cur_displayed_map_info["type"] == "added":
-            RS_idx1 = self.spc_file.get_idx(values[0])
-            if len(values) == 1:
+        if self.parent.cur_displayed_map_info is None:
+            print("necessary1")
+            # umx_methodから呼ばれたときは、background を設定する際、mapを指定せずにreplace_spectrumするので、これが呼ばれてしまう。
+        else:
+            data = self.parent.cur_displayed_map_info["data"]
+            draw = self.parent.cur_displayed_map_info["draw"]
+            if draw == "v_line":    # data = [RS1, btm, top]
                 self.set_N_additional_lines(1)
                 self.hide_all_fill_btwn_items()
-                RS_idx2 = None
-                x_value2 = None
-                y_value_list = None
-                fill_top = None
-            elif len(values) == 2:
+                RS_idx1 = self.spc_file.get_idx(data[0])
+                x_value1 = self.spc_file.x[RS_idx1]
+                if data[1] == "0":
+                    btm_value = 0
+                if data[2] == "master":
+                    top_value = self.spc_file.sub[sub_idx].y[RS_idx1]
+                self.additional_lines[0].setData([x_value1, x_value1], [btm_value, top_value])
+            elif draw == "range":   # data = [RS1, RS2, btm, top]
                 self.set_N_additional_fill_btwn_items(1)
                 self.hide_all_lines()
-                RS_idx2 = self.spc_file.get_idx(values[1])
+                RS_idx1 = self.spc_file.get_idx(data[0])
+                RS_idx2 = self.spc_file.get_idx(data[1])
                 RS_idx1, RS_idx2 = np.sort([RS_idx1, RS_idx2])
-                x_value2 = self.spc_file.x[RS_idx2]
-                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2 + 1]
-                fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2 + 1], y_value_list)
-            x_value1 = self.spc_file.x[RS_idx1]
-            # set graph
-            if self.parent.cur_displayed_map_info["detail"] == "signal_intensity":
-                y_value1 = self.spc_file.sub[sub_idx].y[RS_idx1]
-                self.additional_lines[0].setData([x_value1, x_value1], [0, y_value1])
-            elif self.parent.cur_displayed_map_info["detail"] == "signal_to_baseline":
-                y_value1 = y_value_list[0]
-                y_value2 = y_value_list[-1]
-                fill_btm = pg.PlotDataItem([x_value1, x_value2], [y_value1, y_value2])
-                # set values
-                self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
-            elif self.parent.cur_displayed_map_info["detail"] == "signal_to_H_baseline":
-                min_y_value = np.min(y_value_list)
-                fill_btm = pg.PlotDataItem([x_value1, x_value2], [min_y_value, min_y_value])
-                # set values
-                self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
-            elif self.parent.cur_displayed_map_info["detail"] == "signal_to_axis":
-                fill_btm = pg.PlotDataItem([x_value1, x_value2], [0, 0])
-                # set values
-                self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
-            else:
-                raise Exception("attr error")
-        elif self.parent.cur_displayed_map_info["type"] == "custom":
-            if "range" in self.parent.cur_displayed_map_info["data"].keys():
-                self.set_N_additional_fill_btwn_items(1)
-                RS_val1, RS_val2 = self.parent.cur_displayed_map_info["data"]["range"]
-                RS_idx1 = self.spc_file.get_idx(RS_val1)
-                RS_idx2 = self.spc_file.get_idx(RS_val2)
-                RS_idx1, RS_idx2 = np.sort([RS_idx1, RS_idx2])
-                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2 + 1]
                 x_value1 = self.spc_file.x[RS_idx1]
                 x_value2 = self.spc_file.x[RS_idx2]
-                # set values
-                fill_btm = pg.PlotDataItem([x_value1, x_value2], [0, 0])
-                fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2 + 1], y_value_list)
+                y_value_list = self.spc_file.sub[sub_idx].y[RS_idx1:RS_idx2 + 1]
+                if data[2] == "0":
+                    fill_btm = pg.PlotDataItem([x_value1, x_value2], [0, 0])
+                elif data[2] == "end2end":
+                    y_value1 = y_value_list[0]
+                    y_value2 = y_value_list[-1]
+                    fill_btm = pg.PlotDataItem([x_value1, x_value2], [y_value1, y_value2])
+                elif data[2] == "minimum":
+                    min_y_value = np.min(y_value_list)
+                    fill_btm = pg.PlotDataItem([x_value1, x_value2], [min_y_value, min_y_value])
+                if data[3] == "master":
+                    fill_top = pg.PlotDataItem(self.spc_file.x[RS_idx1:RS_idx2 + 1], y_value_list)
                 self.additional_fill_btwn_items[0].setCurves(fill_btm, fill_top)
+            elif draw == "func": # data = [RS1, RS2, multi_data]
+                self.set_N_additional_lines(data[2].N_lines())
+                self.set_N_additional_fill_btwn_items(data[2].N_ranges())
+                for idx, (line_data_x, line_data_y) in enumerate(data[2].get_line_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.additional_lines[idx].setData(line_data_x, line_data_y)
+                for idx, (btm_line, top_line) in enumerate(data[2].get_region_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.additional_fill_btwn_items[idx].setCurves(btm_line, top_line)
             else:
-                self.hide_all_fill_btwn_items()
-            if "points" in self.parent.cur_displayed_map_info["data"].keys():
-                self.additional_points.setData(
-                    x=self.parent.cur_displayed_map_info["data"]["points"][sub_idx][0],
-                    y=self.parent.cur_displayed_map_info["data"]["points"][sub_idx][1]
-                    )
-                self.show_all_points()
-            else:
-                self.hide_all_points()
-            if "lines" in self.parent.cur_displayed_map_info["data"].keys():
-                self.set_N_additional_lines(len(self.parent.cur_displayed_map_info["data"]["lines"][0]))
-                for line, value in zip(self.additional_lines, self.parent.cur_displayed_map_info["data"]["lines"][sub_idx]):
-                    line.setData([value, value], [0, 10000])
-                self.show_all_lines()
-            else:
-                self.hide_all_lines()
-
-    def display_additional_spectrum(self, sub_idx):
-        # CRRされたスペクトル
-        cosmic_ray_locs = self.spc_file.log_dict.get(b"cosmic_ray_locs", [])
-        if sub_idx in cosmic_ray_locs:
-            selected_se_idx_set, TopBottomLeftRight_idxes, original_data_set = cosmic_ray_locs[sub_idx]
-            crr_x_list = np.empty(0, dtype=float)
-            crr_y_list = np.empty(0, dtype=float)
-            crr_connection = np.empty(0, dtype=float)
-            for (s_idx, e_idx), original_data in zip(selected_se_idx_set, original_data_set):
-                # 両サイドに広げる
-                if 0 <= s_idx-1:
-                    try:
-                        crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+2]))
-                        crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
-                        crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 2) + [False]))
-                    # end 側が飛び出ている場合をケア
-                    except:
-                        crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+1]))
-                        crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data))
-                        crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
-                # start 側が飛びてている場合をケア
-                else:
-                    crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx:e_idx+2]))
-                    crr_y_list = np.hstack((crr_y_list, original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
-                    crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
-            self.added_items_dict["CRR items"].setData(x=crr_x_list, y=crr_y_list, connect=crr_connection)
+                raise Exception("unsuitable args")
+        # overlayed map info
+        if self.parent.cur_overlayed_map_info is None:
+            print("necessary2")
         else:
-            self.added_items_dict["CRR items"].setData()
+            data = self.parent.cur_overlayed_map_info["data"]
+            draw = self.parent.cur_overlayed_map_info["draw"]
+            if draw == "spc_overlay":   # [param1, param2, spc_data]
+                self.set_N_overlayed_lines(data[2].N_lines(sub_idx))
+                self.set_N_overlayed_fill_btwn_items(data[2].N_ranges(sub_idx))
+                for idx, (line_data_x, line_data_y, kwargs) in enumerate(data[2].get_line_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.overlayed_lines[idx].setData(line_data_x, line_data_y, **kwargs)
+                for idx, (btm_line, top_line, kwargs) in enumerate(data[2].get_region_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.additional_fill_btwn_items[idx].setCurves(btm_line, top_line, **kwargs)
+            else:
+                raise Exception("unknow kwargs")
     # map画像作成
     def signal_intensity(self, RS):
         RS_idx = self.spc_file.get_idx(RS)
@@ -1336,37 +1604,19 @@ class SpectrumWidget(pg.PlotWidget):
         for idx, (image2d, optional_name, optional_id) in enumerate(zip(image2d_list, optional_name_list, optional_id_list)):
             image2D = Image2D(image2d, name="unmixed_%d-%d_%s"%(sRS, eRS, optional_id))
             # ボタン追加
-            if idx < n_spectrum - 3:
-                umx_y_matrix = regional_y_matrix[:, [idx,-3,-2,-1]]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
-                umx_h_matrix = umx_height_matrix[:, [idx,-3,-2,-1]]   # umx_height_matrix.shape = (fnsub, n_spectrum)
-            # baseline drift
-            elif idx == n_spectrum - 3:
-                umx_y_matrix = regional_y_matrix[:, -3:]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
-                umx_h_matrix = umx_height_matrix[:, -3:]   # umx_height_matrix.shape = (fnsub, n_spectrum)
-            # total_signal（total以外の1列目だけの和に、加えることで真の total signal になる）
-            elif idx == n_spectrum - 2:
-                umx_y_matrix = regional_y_matrix[:, -2:]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
-                umx_h_matrix = umx_height_matrix[:, -2:]   # umx_height_matrix.shape = (fnsub, n_spectrum)
             unmixed_data = UnmixedData(
-                standard_type = optional_id, 
                 abs_id = self.abs_id, 
-                n_th_components = (idx, n_spectrum - 1),    # 表示するための曲線の数。n_spectrum - 3 + 2 (baseline drift, total signal の 2)
+                standard_type = optional_id, 
                 umx_x_list = umx_x_list, 
-                umx_y_matrix = umx_y_matrix, 
-                umx_h_matrix = umx_h_matrix
+                umx_y_matrix = regional_y_matrix, 
+                umx_h_matrix = umx_height_matrix
                 )
             self.parent.toolbar_layout.add_content(
-                image2D, 
-                CLASS="Unmixed",
-                info={
-                    "content":"map", 
-                    "type":"unmixed", 
-                    "detail":optional_name, 
-                    "values":[sRS, eRS, "#"+optional_id], 
-                    "idx":idx, 
-                    "data":unmixed_data, 
-                    }, 
-                parent_window=self.parent
+                AddedContent_Map(
+                    image2D, 
+                    info={"content":"map", "type":"unmixed", "detail":optional_name, "draw":"func", "data":[sRS, eRS, unmixed_data]}, 
+                    parent_window=self.parent
+                )
             )
         # プログレスバー閉じる
         self.abs_id += 1
@@ -1468,7 +1718,7 @@ class SpectrumWidget(pg.PlotWidget):
     def save_as_method(self, save_path):
         # 入れ物づくり
         UMX = gf.UnmixingMethod(procedures=["unmix"])
-        for added_content in self.parent.toolbar_layout.added_spectrum_info_list:
+        for added_content in self.parent.toolbar_layout.added_content_spc_list:
             addedItem = added_content.item
             if isinstance(addedItem, pg.PlotDataItem):
                 UMX.spc_like_list.append(added_content.info["data"])
@@ -1484,8 +1734,8 @@ class SpectrumWidget(pg.PlotWidget):
         # # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
         # sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
         # 使用する追加スペクトル（事前チェックは済ませといてね）
-        added_content_list = [added_spectrum_info for added_spectrum_info in self.parent.toolbar_layout.added_spectrum_info_list 
-            if added_spectrum_info.item.isVisible() and (added_spectrum_info.info["type"] == "added")]
+        added_content_list = [added_content_spectrum for added_content_spectrum in self.parent.toolbar_layout.added_content_spectrum_list 
+            if added_content_spectrum.item.isVisible() and (added_content_spectrum.info["type"] == "added")]
         added_content = added_content_list[0]
         # データ整序
         added_x_list = added_content.item.xData
@@ -1514,7 +1764,7 @@ class SpectrumWidget(pg.PlotWidget):
         x_minmax1, x_minmax2, added_y_list1, added_y_list2, added_content = self.get_spectrum_linear_subtraction_basic_info(sRS, eRS)
         x_min1_idx, x_max1_idx = np.sort([self.spc_file.get_idx(x_minmax1[0]), self.spc_file.get_idx(x_minmax1[1])])
         master_x_list1, master_y_list1 = self.spc_file.get_data(x_minmax1[0], x_minmax1[1], sub_idx=0)
-        umx_h_list = np.empty(self.spc_file.fnsub, dtype=float)
+        sub_h_list = np.empty(self.spc_file.fnsub, dtype=float)
         # イメージ格納庫（全スペクトルの総和としてイメージを作成）
         area_values_list = np.empty(self.spc_file.fnsub, dtype=float)
         selected_RS_diff_list_half = np.absolute(np.diff(self.spc_file.x[x_min1_idx:x_max1_idx + 1])) / 2
@@ -1522,10 +1772,10 @@ class SpectrumWidget(pg.PlotWidget):
         for idx in range(self.spc_file.fnsub):
             master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=idx)
             # 最小二乗
-            umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
-            umx_h_list[idx] = umx_h_value
+            sub_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
+            sub_h_list[idx] = sub_h_value
             area_values_list[idx] = ((self.spc_file.sub[idx].y[x_min1_idx + 1:x_max1_idx + 1] + self.spc_file.sub[idx].y[x_min1_idx:x_max1_idx]) \
-                                        * selected_RS_diff_list_half).sum() + to_subtract_base_value * umx_h_value
+                                        * selected_RS_diff_list_half).sum() + to_subtract_base_value * sub_h_value
             # プログレスバー処理
             if idx in segment_list:
                 self.pbar_widget.addValue(1)
@@ -1535,27 +1785,20 @@ class SpectrumWidget(pg.PlotWidget):
         plot_data_item = pg.PlotDataItem(fillLevel=0, pen=gf.mk_u_pen())
         self.plotItem.vb.addItem(plot_data_item)
         # 描画用データ
-        subtraction_data = SubtractionData(
-            abs_id = self.abs_id, 
+        subtraction_data = SubtractionData( 
             x_minmax1 = x_minmax1, 
             master_x_list1 = master_x_list1, 
             added_y_list1 = added_y_list1, 
-            umx_h_list = umx_h_list
+            sub_h_list = sub_h_list
             )
         self.parent.toolbar_layout.add_content(
-            image2D, 
-            CLASS = "SubtractedSpectrums",
-            info={
-                "content":"map", 
-                "type":"subtracted", 
-                "detail":added_content.summary(), 
-                "values":[sRS, eRS], 
-                "data":subtraction_data
-                }, 
-            parent_window=self.parent
+            AddedContent_Map(
+                image2D, 
+                info={"content":"map", "type":"subtracted", "detail":added_content.summary(), "draw":"func", "data":[sRS, eRS, subtraction_data]}, 
+                parent_window=self.parent
+            )
         )
         # プログレスバー閉じる
-        self.abs_id += 1
         self.pbar_widget.is_close_allowed = True
         self.pbar_widget.close()
     # 追加スペクトルが1本のみの場合に適用。指定された波数範囲において元スペクトルから、n倍した追加スペクトルを引き算し、なるべく直線に近づくような引き算をする。
@@ -1566,9 +1809,9 @@ class SpectrumWidget(pg.PlotWidget):
         master_x_list1, master_y_list1 = self.spc_file.get_data(x_minmax1[0], x_minmax1[1], sub_idx=0)
         master_x_list2, master_y_list2 = self.spc_file.get_data(x_minmax2[0], x_minmax2[1], sub_idx=0)
         # 最小二乗
-        umx_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
+        sub_h_value = gf.spectrum_linear_subtraction_core(master_x_list2, master_y_list2, added_y_list2, to_zero)
         # 追加
-        plot_data_item = pg.PlotDataItem(master_x_list1, (added_y_list1 * umx_h_value + master_y_list1), fillLevel=0, pen=gf.mk_u_pen())
+        plot_data_item = pg.PlotDataItem(master_x_list1, (added_y_list1 * sub_h_value + master_y_list1), fillLevel=0, pen=gf.mk_u_pen())
         self.plotItem.vb.addItem(plot_data_item)
         self.parent.toolbar_layout.add_content(
             plot_data_item, 
@@ -1628,8 +1871,8 @@ class MapWidget(pg.GraphicsLayoutWidget):
         self.map_img = pg.ImageItem()
         self.img_view_box.addItem(self.map_img)
         # CRR用
-        self.crr_img = pg.ImageItem()
-        self.img_view_box.addItem(self.crr_img)
+        self.overlay_img = pg.ImageItem()
+        self.img_view_box.addItem(self.overlay_img)
         # クロスヘア
         self.h_crosshair = pg.InfiniteLine(pen=gf.mk_c_pen(), angle=0)
         self.v_crosshair = pg.InfiniteLine(pen=gf.mk_c_pen())
@@ -1640,9 +1883,7 @@ class MapWidget(pg.GraphicsLayoutWidget):
         # テキスト追加（画像の輝度など）
         self.text_item = pg.TextItem(text="x=0, y=0, value=0")
         self.text_item.setParentItem(self.img_view_box)
-        # 初期処理
-        if spc_file is not None:
-            self.initiate_map_spectrum(spc_file)
+        # イベントコネクト
         self.scene().sigMouseClicked.connect(self.on_click)
         self.scene().sigMouseMoved.connect(self.on_move)
     # グラフがある場合、親 widget が focus を get できない。
@@ -1650,18 +1891,24 @@ class MapWidget(pg.GraphicsLayoutWidget):
         self.parent.focusInEvent(event)
     def focusOutEvent(self, event):
         self.parent.focusOutEvent(event)
-    # spc_fileを渡された場合（最初だけ？）
-    def initiate_map_spectrum(self, spc_file):
+    # 初期処理
+    def map_size_changed(self):
+        self.parent.set_window_title()
         self.set_crosshair(0, 0)
-        if b"map_x" in spc_file.log_dict.keys():
-            # 枠追加
-            w, h = spc_file.get_shape()
-            self.frame.setRect(0, 0, h, w)
-            # img 追加（クリックするのに必要）
-            pseudo_image2d = np.zeros((h, w))
+        # 枠のサイズアップデート
+        w, h = self.parent.spectrum_widget.spc_file.get_shape()
+        self.frame.setRect(0, 0, h, w)
+        # imgのサイズアップデート
+        if self.map_img.image is not None:
+            self.map_img.setImage(np.reshape(self.map_img.image.T, (w, h)).T)
+        else:
+            pseudo_image2d = np.zeros((w, h))
             self.map_img.setImage(pseudo_image2d)
             self.map_img.hide()
-            self.img_view_box.autoRange()
+        self.img_view_box.autoRange()
+        # 既に追加された map がある場合は、それをアップデート
+        for added_content in self.parent.toolbar_layout.added_content_map_list:
+            added_content.item.image2d = added_content.item.image2d.T.reshape(w, h).T
     # Image2D インスタンスを渡された場合
     def display_map(self, image2D):
         # そもそもイメージがまだ無ければ、イメージを追加する
@@ -1758,16 +2005,24 @@ class Image2D():
                 saving_data = Image.fromarray(Numpy_data.T.astype(np.uint8))
         image_name_wo_ext = "%s_%s_%d-%d"%(base_name, self.name, min_value, max_value)
         saving_data.save(os.path.join(dir_path, "%s.tif"%image_name_wo_ext))
-    # 現在の画像を、新たな画像で割る
-    def Divide(self, image2D):
-        new_name = "div_%s_by_%s"%(self.name, image2D.name)
-        new_image2d = self.image2d / image2D.image2d
-        return Image2D(new_image2d, name=new_name)
-
+    # # 現在の画像を、新たな画像で割る
+    # def Divide(self, image2D):
+    #     new_name = "div_%s_by_%s"%(self.name, image2D.name)
+    #     new_image2d = self.image2d / image2D.image2d
+    #     return Image2D(new_image2d, name=new_name)
     # infは無視するよ
+    def image(self):
+        return self.image2d
     def getLevels(self):
         finite_array = self.image2d[np.isfinite(self.image2d)]
         return np.min(finite_array), np.max(finite_array)
+class Image2D_color():
+    def __init__(self, image2d_color, name="none-type"):
+        self.image2d_color = image2d_color
+        self.x, self.y, self.c = image2d_color.shape
+        self.name = name
+    def image(self):
+        return self.image2d_color
 
 # popup用の簡易版
 class SimpleMapWidget(MapWidget):

@@ -143,7 +143,7 @@ def locate_cosmic_ray(spc_file, pbar=None, segment_list=None):
     #         # a.exec_()
 
 
-# 太いCosmic Rayをしっかり検出できないかも。
+# 太いCosmic Rayをしっかり検出できないかも。？
 def detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=gf.CRR_half_window2, SN=gf.CRR_SN, pbar=None, segment_list=None):
     data_set = gf.spc2ndarray(spc_file) # shape(fnsub, fnpts)
     ad_data_set = np.absolute(np.diff(data_set, axis=1))
@@ -161,11 +161,52 @@ def detect_cosmic_ray(spc_file, half_window1=gf.CRR_half_window1, half_window2=g
 
 
 
+# cosmic_ray_locs = {554: ([(502, 506)], np.array([443, 665, 553,  -1]))}
+def replace_cosmic_ray(spc_file):
+    for sub_idx, (se_set, TopBottomLeftRight_idxes, original_data_set) in spc_file.log_dict[b"cosmic_ray_locs"].items():
+        # 宇宙線領域以外の部分で最小二乗法して、それを cov_list で重み付けする
+        data_without_cosmic_ray_center = np.empty((0), dtype=float)
+        pre_e_idx = 0
+        for s_idx, e_idx in se_set:
+            data_without_cosmic_ray_center = np.hstack((data_without_cosmic_ray_center, spc_file.sub[sub_idx].y[pre_e_idx:s_idx]))
+            pre_e_idx = e_idx
+        else:
+            data_without_cosmic_ray_center = np.hstack((data_without_cosmic_ray_center, spc_file.sub[sub_idx].y[pre_e_idx:]))
+        without_cosmic_ray_ones = np.ones_like(data_without_cosmic_ray_center, dtype=float)
+        # 周囲のピクセル
+        SlopeInterceptRSQ_set = np.full((4, 3), np.nan, dtype=float)
+        for idx, around_idx in enumerate(TopBottomLeftRight_idxes):
+            # 周囲のピクセルがあれば（ない場合は -1 としている）
+            if around_idx >= 0:
+                # 宇宙線候補領域以外で最小二乗法したとき
+                data_without_cosmic_ray_around = np.empty((0), dtype=float)
+                pre_e_idx = 0
+                for s_idx, e_idx in se_set:
+                    data_without_cosmic_ray_around = np.hstack((data_without_cosmic_ray_around, spc_file.sub[around_idx].y[pre_e_idx:s_idx]))
+                    pre_e_idx = e_idx
+                else:
+                    data_without_cosmic_ray_around = np.hstack((data_without_cosmic_ray_around, spc_file.sub[around_idx].y[pre_e_idx:]))
+                A = np.vstack([data_without_cosmic_ray_around, without_cosmic_ray_ones])
+                SlopeInterceptRSQ_set[idx, :2] = np.dot(np.dot(np.linalg.inv(np.dot(A, A.T)), A), data_without_cosmic_ray_center)
+                SlopeInterceptRSQ_set[idx, 2] = np.corrcoef(data_without_cosmic_ray_center, data_without_cosmic_ray_around)[0, 1]
+        # 宇宙線領域の修正
+        SlopeInterceptRSQ_set[:, 2] /= np.nansum(SlopeInterceptRSQ_set[:, 2])
+        for idx, (s_idx, e_idx) in enumerate(se_set):
+            # 修正前に、オリジナルのデータを保存
+            spc_file.log_dict[b"cosmic_ray_locs"][sub_idx][2].append(copy.deepcopy(spc_file.sub[sub_idx].y[s_idx:e_idx+1]))
+            # 修正
+            data_for_replacement = np.zeros(e_idx-s_idx+1, dtype=float)
+            for idx, around_idx in enumerate(TopBottomLeftRight_idxes):
+                if not np.isnan(SlopeInterceptRSQ_set[idx, 2]):
+                    data_for_replacement += (spc_file.sub[around_idx].y[s_idx:e_idx+1] * SlopeInterceptRSQ_set[idx, 0] + SlopeInterceptRSQ_set[idx, 1]) * SlopeInterceptRSQ_set[idx, 2]
+            spc_file.sub[sub_idx].y[s_idx:e_idx+1] = data_for_replacement
 
-
-
-
-
+# CRRしてたものを、元に戻す
+def restore_cosmic_ray(spc_file):
+    # オブジェクトをオリジナルに戻す and いろいろ削除
+    for sub_idx, (se_set, TopBottomLeftRight_idxes, original_data_set) in spc_file.log_dict[b"cosmic_ray_locs"].items():
+        for (s_idx, e_idx), original_data in zip(se_set, original_data_set):
+            spc_file.sub[sub_idx].y[s_idx:e_idx+1] = copy.deepcopy(original_data)
 
 
 

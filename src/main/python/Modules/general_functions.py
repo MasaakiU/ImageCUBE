@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.5.7"
+ver = "0.5.8"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -236,13 +236,13 @@ class QRichLabel(QLabel):
 
 
 # バイナリファイルへの書き込み用：上書きでなく、挿入の形で書き込み
-def insert(f, insert_re, offset, from_what):   # 0:ファイル頭、1:現在の位置、2:ファイルお尻
+def insert(f, insert_txt, offset, from_what):   # 0:ファイル頭、1:現在の位置、2:ファイルお尻
     # from_whatからoffsetだけ移動した後、そこよりあとの部分を読み込み、
     f.seek(offset, from_what)
     latter_part = f.read()
-    # 読み込んだ時点で最後まで位置が移動してしまっているので元の位置に戻り、"insert_re, 前もって読んでおいたlatter_part"の順で上書き
+    # 読み込んだ時点で最後まで位置が移動してしまっているので元の位置に戻り、"insert_txt, 前もって読んでおいたlatter_part"の順で上書き
     f.seek(offset, from_what)
-    f.write(insert_re)
+    f.write(insert_txt)
     f.write(latter_part)
 
 # バイナリファイルへの書き込み用：指定された正規表現の部分を削除
@@ -308,7 +308,7 @@ def get_prime_factors(n):
             prime_factor_list.append(i)
     if n > 1:
         prime_factor_list.append(n)
-    return(np.array(prime_factor_list))
+    return np.array(prime_factor_list)
 
 # ２つの積に分解する
 def into_2_products(n):
@@ -320,7 +320,7 @@ def into_2_products(n):
     product1_list = np.power(unique_factors[np.newaxis, :], comb_list).prod(axis=1)
     product1_list.sort()
     product2_list = (n / product1_list).astype(int)
-    return(product1_list, product2_list)
+    return product1_list, product2_list
 
 # """
 # get x to minimize ||Ax - b||
@@ -416,48 +416,22 @@ def update_logsizd(file_path, flogoff=None, added_length=None):
         logsizd += added_length
         f.seek(flogoff)
         f.write(struct.pack("<i".encode("utf-8"), logsizd))
+# def isInBinary(file_path, search_re, flags=0):
+#     with open(file_path,'rb') as f:
+#         matchedObject = re.finditer(search_re, f.read(), flags=flags)
+#     return matchedObject
 
-# general funcにすべきかはわからないが、spcファイルのサイズ要素をオリジナルファイルに上書きするための関数
-def set_size(self, file_path, x, y, z=1):
-    # ファイルの存在チェック
-    if os.path.exists(file_path):
-        # もし既に一度書かれていたら、"[map_size]" から "[map_size]" までをまず削除
-        if b"[map_size]" in self.log_other:
-            deleted_length = delete_size(file_path)
-        else:
-            deleted_length = 0
-        inserted_length = generate_size(file_path, x, y)
-        update_logsizd(file_path, self.flogoff, inserted_length-deleted_length)
-    else:
-        from . import popups
-        warning_popup = popups.WarningPopup("Cannot find the original '.spc' file. \nIt could be moved or deleted. \nThe size information will not be saved.")
-        warning_popup.exec_()
-    # 実際に更新されたバイナルファイルに合うように、辞書など追加
-    self.log_other.append(b"[map_size]")
-    self.log_dict[b"map_x"] = x
-    self.log_dict[b"map_y"] = y
-    self.log_dict[b"map_z"] = z
-def generate_size(file_path, x, y, z=1):
-    with open(file_path,'rb+') as f:
-        insert_re = ("\n[map_size]\r\nmap_x=%d\r\nmap_y=%d\r\nmap_z=%d\r\n[map_size]\r\n"%(x, y, z)).encode("utf-8")
-        insert(f, insert_re, -1, 2)
-    return len(insert_re)
-def delete_size(file_path):
-    with open(file_path,'rb+') as f:
-        remove_re = b"\n\[map_size\]\r\nmap_x=[0-9]+\r\nmap_y=[0-9]+\r\nmap_z=[0-9]+\r\n\[map_size\]\r\n"
-        matchedObject = remove_between(f, remove_re)
-    return len(matchedObject.group(0))
-def isInBinary(file_path, search_re, flags=0):
-    with open(file_path,'rb') as f:
-        matchedObject = re.finditer(search_re, f.read(), flags=flags)
-    return matchedObject
-
-# general funcにすべきかはわからないが、spcファイルのcell_free_positionをオリジナルのファイルに上書きするための関数
+# spcファイルのcell_free_positionをオリジナルのファイルに上書きするための関数
 def get_shape(self):
     try:
         return int(self.log_dict[b"map_y"]), int(self.log_dict[b"map_x"])
     except:
         return 0, 0
+def get_size(self):
+    try:
+        return int(self.log_dict[b"map_x"]), int(self.log_dict[b"map_y"]), int(self.log_dict[b"map_z"])
+    except:
+        return 0, 0, 0
 def get_sub_idx(self, x_idx, y_idx):
     try:
         return y_idx * int(self.log_dict[b"map_x"]) + x_idx
@@ -486,87 +460,73 @@ def set_cfp(self, file_path, x, y, z=1):
     self.log_dict[b"cfp_z"] = z
 def generate_cfp(file_path, x, y, z=1):
     with open(file_path,'rb+') as f:
-        insert_re = ("\n[cfp]\r\ncfp_x=%d\r\ncfp_y=%d\r\ncfp_z=%d\r\n[cfp]\r\n"%(x, y, z)).encode("utf-8")
-        insert(f, insert_re, -1, 2)
-    return len(insert_re)
+        insert_txt = ("\n[cfp]\r\ncfp_x=%d\r\ncfp_y=%d\r\ncfp_z=%d\r\n[cfp]\r\n"%(x, y, z)).encode("utf-8")
+        insert(f, insert_txt, -1, 2)
+    return len(insert_txt)
 def delete_cfp(file_path):
     with open(file_path,'rb+') as f:
         remove_re = b"\n\[cfp\]\r\ncfp_x=[0-9]+\r\ncfp_y=[0-9]+\r\ncfp_z=[0-9]+\r\n\[cfp\]\r\n"
         matchedObject = remove_between(f, remove_re)
     return len(matchedObject.group(0))
 
-# 宇宙線除去
-def CRR(self, file_path, cosmic_ray_locs, CRR_params):
+# 書き込み
+def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=True):
     # ファイルの存在チェック
     if os.path.exists(file_path):
         np.set_printoptions(threshold=np.inf)   # これ必要です
-        inserted_length = generate_CRR(file_path, str(cosmic_ray_locs).replace("\n", "").replace(" ", ""), str(CRR_params).replace("\n", "").replace(" ", ""))
-        update_logsizd(file_path, self.flogoff, inserted_length)
+        # 書き込み
+        txt_data = "\r\n".join(["{0}={1}".format(key, data2txt(data)) for key, data in zip(key_list, data_list)])
+        with open(file_path,'rb+') as f:
+            insert_txt = ("\n[{0}]\r\n{1}\r\n[{0}]\r\n".format(master_key, txt_data)).encode("utf-8")
+            insert(f, insert_txt, -1, 2)
+        update_logsizd(file_path, self.flogoff, len(insert_txt))
     else:
         from . import popups
-        warning_popup = popups.WarningPopup("Cannot find the original '.spc' file. \nIt could be moved or deleted. \nCosmic Ray Removal was not executed.")
+        warning_popup = popups.WarningPopup("Cannot find the original '.spc' file. \nIt could be moved or deleted.")
         warning_popup.exec_()
         return
     # 実際に更新されたバイナルファイルに合うように、辞書など追加
-    self.log_other.append(b"[CRR]")
-    self.log_dict[b"cosmic_ray_locs"] = cosmic_ray_locs
-    self.log_dict[b"cosmic_ray_removal_params"] = CRR_params
-    self.replace_cosmic_ray()
-def generate_CRR(file_path, cosmic_ray_locs_str, CRR_params_str):
-    with open(file_path,'rb+') as f:
-        insert_re1 = ("\n[CRR]\r\ncosmic_ray_locs=" + cosmic_ray_locs_str + "\r\n[CRR]\r\n").encode("utf-8")
-        insert_re2 = ("\n[CRR_p]\r\ncosmic_ray_removal_params=" + CRR_params_str + "\r\n[CRR_p]\r\n").encode("utf-8")
-        insert(f, insert_re1, -1, 2)
-        insert(f, insert_re2, -1, 2)
-    return len(insert_re1) + len(insert_re2)
-# cosmic_ray_locs = {554: ([(502, 506)], np.array([443, 665, 553,  -1]))}
-def replace_cosmic_ray(self):
-    for sub_idx, (se_set, TopBottomLeftRight_idxes, original_data_set) in self.log_dict[b"cosmic_ray_locs"].items():
-        # 宇宙線領域以外の部分で最小二乗法して、それを cov_list で重み付けする
-        data_without_cosmic_ray_center = np.empty((0), dtype=float)
-        pre_e_idx = 0
-        for s_idx, e_idx in se_set:
-            data_without_cosmic_ray_center = np.hstack((data_without_cosmic_ray_center, self.sub[sub_idx].y[pre_e_idx:s_idx]))
-            pre_e_idx = e_idx
+    if log_dict:
+        for key, data in zip(key_list, data_list):
+            self.log_dict[key.encode()] = data
+        self.log_other.append("[{0}]".format(master_key).encode())
+def data2txt(data):
+    return str(data).replace("\n", "").replace(" ", "")
+# 削除
+def delete_from_binary(self, file_path, master_key, key_list, log_dict=True):
+    # ファイルの存在チェック
+    if os.path.exists(file_path):
+        with open(file_path, 'rb+') as f:
+            # CRR results 除去
+            remove_re = "\n\[{0}\]\r\n.+\r\n\[{0}\]\r\n".format(master_key).encode()
+            matchedObject = remove_between(f, remove_re, flags=re.DOTALL)
+            # logsizd を update
+            update_logsizd(file_path, flogoff=None, added_length= -len(matchedObject.group(0)))
+    else:
+        from . import popups
+        warning_popup = popups.WarningPopup("Cannot find the original '.spc' file. \nIt could be moved or deleted.")
+        warning_popup.exec_()
+        return
+    if log_dict:
+        for key in key_list:
+            del self.log_dict[key.encode()]
+        self.log_other.remove("[{0}]".format(master_key).encode())
+# 更新
+def update_binary(self, file_path, master_key, key_list, data_list, log_dict=True):
+    self.delete_from_binary(file_path, master_key, key_list, log_dict=log_dict)
+    self.write_to_binary(file_path, master_key, key_list, data_list, log_dict=log_dict)
+def modify_prep_order(self, file_path, mode, key, kwargs, log_dict):
+    new_prep_order = self.log_dict[b"prep_order"]
+    if mode == "remove":
+        for idx, prep in enumerate(new_prep_order):
+            if prep[0] == key:
+                break
         else:
-            data_without_cosmic_ray_center = np.hstack((data_without_cosmic_ray_center, self.sub[sub_idx].y[pre_e_idx:]))
-        without_cosmic_ray_ones = np.ones_like(data_without_cosmic_ray_center, dtype=float)
-        # 周囲のピクセル
-        SlopeInterceptRSQ_set = np.full((4, 3), np.nan, dtype=float)
-        for idx, around_idx in enumerate(TopBottomLeftRight_idxes):
-            # 周囲のピクセルがあれば（ない場合は -1 としている）
-            if around_idx >= 0:
-                # 宇宙線候補領域以外で最小二乗法したとき
-                data_without_cosmic_ray_around = np.empty((0), dtype=float)
-                pre_e_idx = 0
-                for s_idx, e_idx in se_set:
-                    data_without_cosmic_ray_around = np.hstack((data_without_cosmic_ray_around, self.sub[around_idx].y[pre_e_idx:s_idx]))
-                    pre_e_idx = e_idx
-                else:
-                    data_without_cosmic_ray_around = np.hstack((data_without_cosmic_ray_around, self.sub[around_idx].y[pre_e_idx:]))
-                A = np.vstack([data_without_cosmic_ray_around, without_cosmic_ray_ones])
-                SlopeInterceptRSQ_set[idx, :2] = np.dot(np.dot(np.linalg.inv(np.dot(A, A.T)), A), data_without_cosmic_ray_center)
-                SlopeInterceptRSQ_set[idx, 2] = np.corrcoef(data_without_cosmic_ray_center, data_without_cosmic_ray_around)[0, 1]
-        # 宇宙線領域の修正
-        SlopeInterceptRSQ_set[:, 2] /= np.nansum(SlopeInterceptRSQ_set[:, 2])
-        for idx, (s_idx, e_idx) in enumerate(se_set):
-            # 修正前に、オリジナルのデータを保存
-            self.log_dict[b"cosmic_ray_locs"][sub_idx][2].append(copy.deepcopy(self.sub[sub_idx].y[s_idx:e_idx+1]))
-            # 修正
-            data_for_replacement = np.zeros(e_idx-s_idx+1, dtype=float)
-            for idx, around_idx in enumerate(TopBottomLeftRight_idxes):
-                if not np.isnan(SlopeInterceptRSQ_set[idx, 2]):
-                    data_for_replacement += (self.sub[around_idx].y[s_idx:e_idx+1] * SlopeInterceptRSQ_set[idx, 0] + SlopeInterceptRSQ_set[idx, 1]) * SlopeInterceptRSQ_set[idx, 2]
-            self.sub[sub_idx].y[s_idx:e_idx+1] = data_for_replacement
-
-def clear_CRR_fm_object(self):
-    # オブジェクトをオリジナルに戻す and いろいろ削除
-    for sub_idx, (se_set, TopBottomLeftRight_idxes, original_data_set) in self.log_dict[b"cosmic_ray_locs"].items():
-        for (s_idx, e_idx), original_data in zip(se_set, original_data_set):
-            self.sub[sub_idx].y[s_idx:e_idx+1] = copy.deepcopy(original_data)
-    del self.log_dict[b"cosmic_ray_locs"]
-    del self.log_dict[b"cosmic_ray_removal_params"]
-
+            raise Exception("error {0}".foramt(new_prep_order))
+        del new_prep_order[idx]
+    if mode == "append":
+        new_prep_order.append([key, kwargs])
+    self.update_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=log_dict)
 # to ndArray with shape(self.fnsub, self.fnpts)
 def toNumPy_2dArray(self):
     spc_set = np.full((self.fnsub, self.fnpts), np.nan, dtype=float)
@@ -576,18 +536,59 @@ def toNumPy_2dArray(self):
 def fmNumPy_2dArray(self, numpy2dArray):
     for sub_idx, data in enumerate(numpy2dArray):
         self.sub[sub_idx].y = data
-def clear_CRR_fm_binary(file_path):
-    with open(file_path, 'rb+') as f:
-        # CRR results 除去
-        remove_re = b"\n\[CRR\]\r\n.+\r\n\[CRR\]\r\n"
-        matchedObject = remove_between(f, remove_re, flags=re.DOTALL)
-        len1 = len(matchedObject.group(0))
-        # CRR params 除去
-        remove_re = b"\n\[CRR_p\]\r\n.+\r\n\[CRR_p\]\r\n"
-        matchedObject = remove_between(f, remove_re, flags=re.DOTALL)
-        len2 = len(matchedObject.group(0))
-        # logsizd を update
-        update_logsizd(file_path, flogoff=None, added_length= -len1- len2)
+def spc_transplant(acceptor_spc, donor_spc):
+    for sub_idx in range(donor_spc.fnsub):
+        acceptor_spc.sub[sub_idx].y[:] = donor_spc.sub[sub_idx].y
+def spc_init(spc_file, file_path):
+    ###
+    # 古いバージョンで開いたspcファイルは、log blockのサイズ (self.logsizd) 情報がupdateされていないものがある。それの対処。
+        # flogoff + logtxto ~ flogoff + logtxto + logsizd
+    # を読んでるから、長く読んでしまっていた。正しくは下記。（オリジナルの spc.py のライブラリを編集して使うこと）
+        # flogoff + logtxto ~ flogoff + logtxto + logsizd - logtxto
+    # logファイルは幸いなことに一番最後に書かれてる（プラスして\x00が1文字入ってはいるが）:一致してるかを見る
+    update = legacy_function_to_correct_logsizd(file_path, spc_file.flogoff, spc_file.length)
+    if update:
+        spc_file = open_spc_spcl(file_path)
+    ###
+    # Preprocesses の前処理
+    if b"[PreP]" not in spc_file.log_other:
+        new_prep_order = []
+        spc_file.write_to_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
+    else:
+        new_prep_order = eval(spc_file.log_dict[b"prep_order"].decode("utf-8"))
+    # サイズ
+    if b"[map_size]" not in spc_file.log_other:
+        product_x_list, product_y_list = into_2_products(spc_file.fnsub)
+        middle_idx = int(len(product_x_list) / 2)
+        x = product_x_list[middle_idx]
+        y = product_y_list[middle_idx]
+        z = 1
+        size = [x, y, z]
+        spc_file.write_to_binary(file_path, master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=size, log_dict=True)        
+    else:
+        size = spc_file.get_size()
+    for prep in new_prep_order:
+        if prep[0] == "set_size":
+            break
+    else:
+        new_prep_order.append(["set_size", {"size":None, "mode":"init"}])
+    # CRR
+    if b'[CRR]' in spc_file.log_other:
+        spc_file.log_dict[b"cosmic_ray_locs"] = eval(spc_file.log_dict[b"cosmic_ray_locs"].replace(b"array", b"np.array"))
+        spc_file.log_dict[b"cosmic_ray_removal_params"] = eval(spc_file.log_dict[b"cosmic_ray_removal_params"].replace(b"array", b"np.array"))
+        # 古いファイルでCRRしてる時用
+        if ["CRR_master", {"ask":False, "mode":"init"}] not in new_prep_order:
+            new_prep_order.append(["CRR_master", {"ask":False, "mode":"init"}])
+    else:
+        pass
+    # NR
+    if b'[NR]' in spc_file.log_other:
+        spc_file.log_dict[b"noise_reduction_params"] = eval(spc_file.log_dict[b"noise_reduction_params"].replace(b"array", b"np.array"))
+        # 古いファイルでNRは使用していいない（記録されない仕様）
+    else:
+        pass
+    spc_file.update_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
+    return spc_file
 
 class CustomColorButton(QPushButton):
     def __init__(self):
@@ -768,12 +769,161 @@ class UnmixingMethod():
 
 
 # スペクトル描画の際はspcファイル毎にwidgetに渡されるので、その形に似せといたほうが良い
+#  {
+    # 'length': 5573, 
+    # 'ftflg': b'\x00', 
+    # 'fversn': b'K', 
+    # 'fexper': 11, 
+    # 'fexp': 128, 
+    # 'fnpts': 1015, 
+    # 'ffirst': 4708.185546875, 
+    # 'flast': 100.810546875, 
+    # 'fnsub': 1, 
+    # 'fxtype': 13, 
+    # 'fytype': 4, 
+    # 'fztype': 0, 
+    # 'fpost': b'\x00', 
+    # 'fdate': 1282953736, 
+    # 'fres': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'fsource': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'fpeakpt': 0, 
+    # 'fspare': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'fcmnt': "b'\\x92P\\x88\\xea\\x83X\\x83L\\x83\\x83\\x83\\x93\\x91\\xaa\\x92\\xe8 6\\xe6\\xb8\\xac\\xe5\\xae\\x9a 6\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00'", 
+    # 'fcatxt': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'flogoff': 4604, 
+    # 'fmods': 0, 
+    # 'fprocs': b'\x00', 
+    # 'flevel': b'\x00', 
+    # 'fsampin': 0, 
+    # 'ffactor': 0.0, 
+    # 'fmethod': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'fzinc': 0.0, 
+    # 'fwplanes': 0, 
+    # 'fwinc': 0.0, 
+    # 'fwtype': b'\x00', 
+    # 'freserv': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'tsprec': False, 
+    # 'tcgram': False, 
+    # 'tmulti': False, 
+    # 'trandm': False, 
+    # 'tordrd': False, 
+    # 'talabs': False, 
+    # 'txyxys': False, 
+    # 'txvals': False, 
+    # 'year': 1223, 
+    # 'month': 8, 
+    # 'day': 10, 
+    # 'hour': 8, 
+    # 'minute': 8, 
+    # 'cmnt': "b'\\x92P\\x88\\xea\\x83X\\x83L\\x83\\x83\\x83\\x93\\x91\\xaa\\x92\\xe8 6\\xe6\\xb8\\xac\\xe5\\xae\\x9a 6\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00'", 
+    # 'dat_fmt': 'gx-y', 
+    # 'x': array([4708.18554688, 4703.64178455, 4699.09802222, ...,  109.89807153, 105.3543092 ,  100.81054688]), 
+    # 'sub': [<spc.sub.subFile object at 0x7fc650a2ec50>], 
+    # 'logsizd': 968, 
+    # 'logsizm': 4096, 
+    # 'logtxto': 64, 
+    # 'logbins': 0, 
+    # 'logdsks': 0, 
+    # 'logspar': b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', 
+    # 'log_content': [
+    #     b'Operator=Raman', 
+    #     b'Scan_type=Static', 
+    #     b'Measurement_type=SingleScan', 
+    #     b'XListType=1', b'YListType=4', 
+    #     b'Description=WiRE \x83X\x83y\x83N\x83g\x83\x8b\x8e\xe6\x93\xbe\x83E\x83B\x83U\x81[\x83h\x82\xc9\x82\xe6\x82\xe8\x90\xb6\x90\xac\x82\xb3\x82\xea\x82\xbd\x92P\x88\xea\x83X\x83L\x83\x83\x83\x93\x91\xaa\x92\xe8\x81B', 
+    #     b'Filter_wavenum=Image wavenumber: 2750', 
+    #     b'Exposure_time=Time: 1000', 
+    #     b'Accumulations=Accumulations: 30', 
+    #     b'Cosmic_ray_removal=Cosmic ray removal: 0', 
+    #     b'Camera_gain=Gain: High', 
+    #     b'Camera_speed=Speed: Low', 
+    #     b'Camera_Serial_Number=0MCN30', 
+    #     b'Serial_number=11RQ83', 
+    #     b'Laser=Laser: 532 nm edge', 
+    #     b'Grating_grooves=Grating: 600 l/mm', 
+    #     b'Focus_mode=Confocal', 
+    #     b'Laser_power=Laser_power: 100%', 
+    #     b'Laser_focus=Laser focus: 0 Percent', 
+    #     b'Pinhole=Out', 
+    #     b'Podule_upper_selector_wheel=Laser', 
+    #     b'Podule_lower_selector_wheel=Sample', 
+    #     b'Calibration_lamp=Off', 
+    #     b'Calibration_lamp_intensity=0', 
+    #     b'Illumination_lamp=Off', 
+    #     b'Illumination_lamp_intensity=0', 
+    #     b'Neon_lamp=Off', 
+    #     b'Slit_opening=20\x83\xcam', 
+    #     b'', 
+    #     b'[WiRE2 ZeroLevelAndDarkCurrent]', 
+    #     b'Version=5.0.1.7483', 
+    #     b'24/04/2018 19:16:50', 
+    #     b'Operator=Raman', 
+    #     b'[WiRE2 ZeroLevelAndDarkCurrent]', 
+    #     b''
+    #     ], 
+    # 'log_dict': {
+    #     b'Operator': b'Raman', 
+    #     b'Scan_type': b'Static', 
+    #     b'Measurement_type': b'SingleScan', 
+    #     b'XListType': b'1', 
+    #     b'YListType': b'4', 
+    #     b'Description': b'WiRE \x83X\x83y\x83N\x83g\x83\x8b\x8e\xe6\x93\xbe\x83E\x83B\x83U\x81[\x83h\x82\xc9\x82\xe6\x82\xe8\x90\xb6\x90\xac\x82\xb3\x82\xea\x82\xbd\x92P\x88\xea\x83X\x83L\x83\x83\x83\x93\x91\xaa\x92\xe8\x81B', 
+    #     b'Filter_wavenum': b'Image wavenumber: 2750', 
+    #     b'Exposure_time': b'Time: 1000', 
+    #     b'Accumulations': b'Accumulations: 30', 
+    #     b'Cosmic_ray_removal': b'Cosmic ray removal: 0', 
+    #     b'Camera_gain': b'Gain: High', 
+    #     b'Camera_speed': b'Speed: Low', 
+    #     b'Camera_Serial_Number': b'0MCN30', 
+    #     b'Serial_number': b'11RQ83', 
+    #     b'Laser': b'Laser: 532 nm edge', 
+    #     b'Grating_grooves': b'Grating: 600 l/mm', 
+    #     b'Focus_mode': b'Confocal', 
+    #     b'Laser_power': b'Laser_power: 100%', 
+    #     b'Laser_focus': b'Laser focus: 0 Percent', 
+    #     b'Pinhole': b'Out', 
+    #     b'Podule_upper_selector_wheel': b'Laser', 
+    #     b'Podule_lower_selector_wheel': b'Sample', 
+    #     b'Calibration_lamp': b'Off', 
+    #     b'Calibration_lamp_intensity': b'0', 
+    #     b'Illumination_lamp': b'Off', 
+    #     b'Illumination_lamp_intensity': b'0', 
+    #     b'Neon_lamp': b'Off', 
+    #     b'Slit_opening': b'20\x83\xcam', 
+    #     b'Version': b'5.0.1.7483'
+    #     }, 
+    # 'log_other': [
+    #     b'', 
+    #     b'[WiRE2 ZeroLevelAndDarkCurrent]', 
+    #     b'24/04/2018 19:16:50', 
+    #     b'[WiRE2 ZeroLevelAndDarkCurrent]', 
+    #     b''
+    # ], 
+    # 'spacing': -4.543762327416173, 
+    # 'xlabel': 'Raman Shift (cm-1)', 
+    # 'zlabel': 'Arbitrary', 
+    # 'ylabel': 'Counts', 
+    # 'exp_type': 'Fluorescence Spectrum'
+    # }
+# {
+    # 'subflgs': 0, 
+    # 'subexp': 128, 
+    # 'subindx': 0, 
+    # 'subtime': 0.0, 
+    # 'subnext': 0.0, 
+    # 'subnois': 0.0, 
+    # 'subnpts': 1015, 
+    # 'subscan': 30, 
+    # 'subwlevel': 0.0, 
+    # 'subresv': b'\x00\x00\x00\x00', 
+    # 'y': array([149.07777405, 137.9009552 , 131.74209595, ..., 255.42512512, 250.27589417, 209.69833374])
+    # }
 class SpcLike(spc.File):
     def __init__(self):
         # main header
         self.length = None
         self.ftflg = None
-        self.fversn = None
+        self.fversn = b'\x4b'   # NEW FORMAT (LSB)
         self.fexper = None
         self.fexp = None
         self.fnpts = None
@@ -809,9 +959,9 @@ class SpcLike(spc.File):
         self.tmulti = None
         self.trandm = None
         self.tordrd = None
-        self.talabs = None
-        self.txyxys = None
-        self.txvals = None
+        self.talabs = False     ###
+        self.txyxys = False     # if True, x values are given
+        self.txvals = False     # if True, only one subfile, which contains the x data
         self.year = None
         self.month = None
         self.day = None
@@ -819,7 +969,7 @@ class SpcLike(spc.File):
         self.minute = None
         self.cmnt = None
         self.dat_multi = None
-        self.dat_fmt = None
+        self.dat_fmt = None     # "-xy", "x-y" or "gx-y"
         self.x = None
         self.sub = []
         # log header
@@ -872,6 +1022,77 @@ class SpcLike(spc.File):
         for attrib in attrib_list:
             setattr(self, attrib, getattr(spc_file, attrib))
         self.fdate = datetime2decimal(datetime.datetime.now())
+    def set_labels(self, fxtype=0, fytype=0, fztype=0):
+        self.fxtype, self.fytype, self.fztype = fxtype, fytype, fztype
+        super().set_labels()
+        # --------------------------
+        # units for x,z,w axes
+        # --------------------------
+        # fxtype_op = ["Arbitrary",
+        #              "Wavenumber (cm-1)",
+        #              "Micrometers (um)",
+        #              "Nanometers (nm)",
+        #              "Seconds ",
+        #              "Minutes", 
+        #              "Hertz (Hz)",
+        #              "Kilohertz (KHz)",
+        #              "Megahertz (MHz) ",
+        #              "Mass (M/z)",
+        #              "Parts per million (PPM)",
+        #              "Days",
+        #              "Years",
+        #              "Raman Shift (cm-1)",
+        #              "eV",
+        #              "XYZ text labels in fcatxt (old 0x4D version only)",
+        #              "Diode Number",
+        #              "Channel",
+        #              "Degrees",
+        #              "Temperature (F)",
+        #              "Temperature (C)",
+        #              "Temperature (K)",
+        #              "Data Points",
+        #              "Milliseconds (mSec)",
+        #              "Microseconds (uSec) ",
+        #              "Nanoseconds (nSec)",
+        #              "Gigahertz (GHz)",
+        #              "Centimeters (cm)",
+        #              "Meters (m)",
+        #              "Millimeters (mm)",
+        #              "Hours"]
+        # --------------------------
+        # units y-axis
+        # --------------------------
+        # fytype_op = ["Arbitrary Intensity",
+        #              "Interferogram",
+        #              "Absorbance",
+        #              "Kubelka-Munk",
+        #              "Counts",
+        #              "Volts",
+        #              "Degrees",
+        #              "Milliamps",
+        #              "Millimeters",
+        #              "Millivolts",
+        #              "Log(1/R)",
+        #              "Percent",
+        #              "Intensity",
+        #              "Relative Intensity",
+        #              "Energy",
+        #              "",
+        #              "Decibel",
+        #              "",
+        #              "",
+        #              "Temperature (F)",
+        #              "Temperature (C)",
+        #              "Temperature (K)",
+        #              "Index of Refraction [N]",
+        #              "Extinction Coeff. [K]",
+        #              "Real",
+        #              "Imaginary",
+        #              "Complex"]
+        # fytype_op2 = ["Transmission",
+        #               "Reflectance",
+        #               "Arbitrary or Single Beam with Valley Peaks",
+        #               "Emission"]
     def add_xData(self, xData):
         self.x = xData
         self.fnpts = len(self.x)
@@ -883,6 +1104,12 @@ class SpcLike(spc.File):
             raise Exception("self.fnpts and length of added spectrum does not match")
         self.fnsub += 1
         self.sub.append(subLike)
+    def add_empty_subLike(self, N):
+        for i in range(N):
+            sub_like = SubLike()
+            sub_like.add_data(y_list=np.zeros_like(self.x), sub_idx=self.fnsub)
+            self.fnsub += 1
+            self.sub.append(sub_like)
     def save_as_spcl(self, save_path):
         with open(save_path, 'wb') as f:
             pickle.dump(self, f)

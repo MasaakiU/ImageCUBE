@@ -608,6 +608,7 @@ class SpectrumWindow(QWidget):
         self.parent = parent
         self.window_type = "s"
         self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(file_path)
+        self.cur_overlayed_spc_info = None
         # 全体設定
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
@@ -626,7 +627,7 @@ class SpectrumWindow(QWidget):
         try: 
             g_width = self.spectrum_widget.spc_file.g_width
             scaling = self.spectrum_widget.spc_file.scaling
-            self.spectrum_widget.SCL_master()
+            self.toolbar_layout.SCL_master()
         except:
             pass
     def focusInEvent(self, event):

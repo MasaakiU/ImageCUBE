@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.5.8"
+ver = "0.6.0"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -546,6 +546,9 @@ def spc_init(spc_file, file_path):
     # を読んでるから、長く読んでしまっていた。正しくは下記。（オリジナルの spc.py のライブラリを編集して使うこと）
         # flogoff + logtxto ~ flogoff + logtxto + logsizd - logtxto
     # logファイルは幸いなことに一番最後に書かれてる（プラスして\x00が1文字入ってはいるが）:一致してるかを見る
+
+    print("init")
+
     update = legacy_function_to_correct_logsizd(file_path, spc_file.flogoff, spc_file.length)
     if update:
         spc_file = open_spc_spcl(file_path)

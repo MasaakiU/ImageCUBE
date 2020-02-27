@@ -47,19 +47,19 @@ def open_output_file(file_path):
         warning_popup.exec_()
         return None       
     # numpy array へ
-    data_set = np.empty((len(data_list), len(col_names)), dtype=float)
+    data_set_t = np.empty((len(data_list) - 1, len(col_names)), dtype=float)
     for idx, data in enumerate(data_list[1:]):
-        data_set[idx, :] = data
+        data_set_t[idx, :] = data
     # 出力
-    return Output(col_names, data_set.T)
+    output = Output(col_names)
+    output.add_data(data_set=data_set_t.T)
+    return output
 
 # 
 class Output(gf.SpcLike):
-    def __init__(self, col_names, data_set):
+    def __init__(self, col_names):
         # properties not included in Spc files.
         self.col_names = col_names      # ['Mode', 'freq(cm**-1)', 'Activity', 'Depolarization']
-        self.data_set = data_set   # shape = (len(col_names), N_peaks)
-        self.N_cols, self.N_peaks = self.data_set.shape
         self.scaling = 0.945
         self.g_width = 3
         self.base_func = gf.gaussian_function
@@ -67,26 +67,45 @@ class Output(gf.SpcLike):
         super().__init__()
         self.set_labels(fxtype=13, fytype=4, fztype=0)
         self.set_x_by_gxy(ffirst=0, flast=5000, fnpts=5000)    # 初期設定
-        self.add_empty_subLike(N=1)
-        self.set_data(sub_idx=0)
+        self.x_ori = np.copy(self.x)
     def set_x_by_gxy(self, ffirst, flast, fnpts):
         self.dat_fmt = "gx-y"   # no x values are given, but they can be generated
         self.ffirst = ffirst
         self.flast = flast
         self.fnpts = fnpts
         self.x = np.linspace(self.ffirst, self.flast, num=self.fnpts)
-    def get_col_idx(self, name):
-        return self.col_names.index(name)
-    def set_data(self, sub_idx):
-        freq_list = self.data_set[self.get_col_idx("freq(cm**-1)")]
-        intn_list = self.data_set[self.get_col_idx("Activity")]
-        y_list = np.zeros_like(self.x)
-        for freq, intn in zip(freq_list, intn_list):
-            y_list += self.base_func(self.x, u=freq, s=self.g_width, h=intn)
-        self.x *= self.scaling
-        self.sub[sub_idx].y[:] = y_list
+    def add_data(self, data_set):
+        self.add_empty_output_sub(N=1)
+        self.sub[-1].data_set = data_set
+        self.scl_changed(scl=self.scaling, wid=self.g_width)
+    def add_empty_output_sub(self, N):
+        for i in range(N):
+            sub_like = OutputSub()
+            sub_like.add_data(y_list=np.zeros_like(self.x), sub_idx=self.fnsub)
+            self.fnsub += 1
+            self.sub.append(sub_like)
+    def get_col_idxes(self, *names):
+        return [self.col_names.index(name) for name in names]
+    def get_sub_data(self, sub_idx, *args):
+        return self.sub[sub_idx].get_data_list(*self.get_col_idxes(*args))
+    def scl_changed(self, scl=None, wid=None):
+        if wid is not None:
+            self.g_width = wid
+            for sub_idx in range(self.fnsub):
+                y_list = np.zeros_like(self.x_ori)
+                for freq, intn in zip(*self.get_sub_data(sub_idx, "freq(cm**-1)", "Activity")):
+                    y_list += self.base_func(self.x_ori, u=freq, s=self.g_width, h=intn)
+                self.sub[sub_idx].y[:] = y_list
+        if scl is not None:
+            self.scaling = scl
+            self.x = self.x_ori * self.scaling
 
-    
+class OutputSub(gf.SubLike):
+    def __init__(self):
+        super().__init__()
+        self.data_set = None
+    def get_data_list(self, *idx_list):
+        return [self.data_set[idx] for idx in idx_list]
 
 
 

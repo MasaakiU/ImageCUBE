@@ -335,6 +335,7 @@ class MapSpectTable(QWidget):
         elif window.window_type in ("main", "b"):
             self.map_layout.remove_all()
             self.spectrum_layout.remove_all()
+            self.preprocess_layout.remove_all()
         elif window.window_type in ("s", "ms", "u"):
             self.map_layout.remove_all()
             self.spectrum_layout.remove_all()
@@ -343,6 +344,10 @@ class MapSpectTable(QWidget):
                 if content.focused:
                     content_widget.focus()
             for content in window.toolbar_layout.added_content_spectrum_list:
+                content_widget = self.add_content(content)
+                if content.focused:
+                    content_widget.focus()
+            for content in window.toolbar_layout.added_content_preprocess_list:
                 content_widget = self.add_content(content)
                 if content.focused:
                     content_widget.focus()

@@ -98,10 +98,7 @@ class AddedContent_Spectrum(AddedContent):
             brush_color = None
         self.item.setBrush(brush_color)
     def hide_show_item(self):
-        if self.item.isVisible():
-            self.item.hide()
-        else:
-            self.item.show()
+        self.item.setVisible(not self.item.isVisible())
     def remove_item(self):
         self.parent_window.spectrum_widget.vb2.removeItem(self.item)
         self.parent_window.toolbar_layout.added_content_spc_list.remove(self)
@@ -294,19 +291,23 @@ class AddedContent_NR(AddedContent_PreP):
 class AddedContent_SCL(AddedContent_PreP):
     def __init__(self, item, info=None, parent_window=None):
         super().__init__(item, info, parent_window)
-        self.allowed_btn_list.remove("hide_show")
+        # self.allowed_btn_list.remove("hide_show")
         self.allowed_btn_list.append("revert")
         # 調整 widget
         self.scl_label = QLabel("   scaling: ")
         self.wid_label = QLabel("   g-width: ")
         self.scl_var = QDoubleSpinBox()
         self.scl_var.setDecimals(4)
+        self.scl_var.setSingleStep(0.1)
+        self.scl_var.setKeyboardTracking(False) # the spinbox doesn't emit the valueChanged() signal while typing
         self.scl_var.setMinimum(0.5)
         self.scl_var.setMaximum(1.5)
         self.scl_var.setValue(1)
         self.wid_var = QDoubleSpinBox()
         self.wid_var.setDecimals(1)
-        self.wid_var.setMinimum(0)
+        self.wid_var.setSingleStep(1)
+        self.wid_var.setKeyboardTracking(False) # the spinbox doesn't emit the valueChanged() signal while typing
+        self.wid_var.setMinimum(0.1)
         self.wid_var.setMaximum(100)
         self.wid_var.setValue(0)
         # イベントコネクト
@@ -319,11 +320,22 @@ class AddedContent_SCL(AddedContent_PreP):
         if log == "not executed":
             return log
     def hide_show_item(self, show=None):
-        pass
+        if show is not None:
+            isVisible = not show
+        else:
+            isVisible = self.parent_window.spectrum_widget.overlayed_lines[0].isVisible()
+        if not isVisible:
+            self.parent_window.cur_overlayed_spc_info = self.info
+            self.parent_window.spectrum_widget.display_spectrum()
+        # スペクトルの表示
+        for line in self.parent_window.spectrum_widget.overlayed_lines:
+            line.setVisible(not isVisible)
     def scl_var_changed(self, event):
-        print(event)
+        self.parent_window.spectrum_widget.spc_file.scl_changed(scl=event, wid=None)
+        self.parent_window.spectrum_widget.update_spectrum()
     def wid_var_changed(self, event):
-        print(event)
+        self.parent_window.spectrum_widget.spc_file.scl_changed(scl=None, wid=event)
+        self.parent_window.spectrum_widget.update_spectrum()
 # class containing information about spectrum unmixing
 class UnmixedData():
     def __init__(self, abs_id, standard_type, umx_x_list, umx_y_matrix, umx_h_matrix):
@@ -391,7 +403,7 @@ class CRR_Data():
     def N_ranges(self, sub_idx):
         return 0
     def format_data(self):
-        ""
+        return ""
     def get_line_data_list(self, sub_idx, original_spc_file):
         # CRRされたスペクトル
         cosmic_ray_locs = original_spc_file.log_dict.get(b"cosmic_ray_locs", [])
@@ -421,36 +433,24 @@ class CRR_Data():
         return [(crr_x_list, crr_y_list, {"connect":crr_connection})]
     def get_region_data_list(self, sub_idx, original_spc_file):
         return []
-
-
-    # def display_additional_spectrum(self, sub_idx):
-    #     # CRRされたスペクトル
-    #     cosmic_ray_locs = self.spc_file.log_dict.get(b"cosmic_ray_locs", [])
-    #     if sub_idx in cosmic_ray_locs:
-    #         selected_se_idx_set, TopBottomLeftRight_idxes, original_data_set = cosmic_ray_locs[sub_idx]
-    #         crr_x_list = np.empty(0, dtype=float)
-    #         crr_y_list = np.empty(0, dtype=float)
-    #         crr_connection = np.empty(0, dtype=float)
-    #         for (s_idx, e_idx), original_data in zip(selected_se_idx_set, original_data_set):
-    #             # 両サイドに広げる
-    #             if 0 <= s_idx-1:
-    #                 try:
-    #                     crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+2]))
-    #                     crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
-    #                     crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 2) + [False]))
-    #                 # end 側が飛び出ている場合をケア
-    #                 except:
-    #                     crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx-1:e_idx+1]))
-    #                     crr_y_list = np.hstack((crr_y_list, self.spc_file.sub[sub_idx].y[s_idx-1], original_data))
-    #                     crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
-    #             # start 側が飛びてている場合をケア
-    #             else:
-    #                 crr_x_list = np.hstack((crr_x_list, self.spc_file.x[s_idx:e_idx+2]))
-    #                 crr_y_list = np.hstack((crr_y_list, original_data, self.spc_file.sub[sub_idx].y[e_idx+1]))
-    #                 crr_connection = np.hstack((crr_connection, [True]*(e_idx - s_idx + 1) + [False]))
-    #         self.added_items_dict["CRR items"].setData(x=crr_x_list, y=crr_y_list, connect=crr_connection)
-    #     else:
-    #         self.added_items_dict["CRR items"].setData()
+class SCL_Data():
+    def __init__(self):
+        pass
+    def N_lines(self, sub_idx):
+        return 1
+    def N_ranges(self, sub_idx):
+        return 0
+    def format_data(self):
+        return ""
+    def get_line_data_list(self, sub_idx, original_spc_file):
+        freq_list, intn_list = original_spc_file.get_sub_data(sub_idx, "freq(cm**-1)", "Activity")
+        freq_list *= original_spc_file.scaling
+        connect = np.concatenate((np.ones_like(freq_list, dtype=int), np.zeros_like(freq_list, dtype=int))).reshape(2, -1).T.reshape(-1)
+        freq_list = np.concatenate((freq_list, freq_list)).reshape(2, -1).T.reshape(-1)
+        intn_list = np.concatenate((intn_list, np.zeros_like(intn_list))).reshape(2, -1).T.reshape(-1)
+        return [(freq_list, intn_list, {"connect":connect})]
+    def get_region_data_list(self, sub_idx, original_spc_file):
+        return []
 
 # スペクトル操作ツールバー
 class ToolbarLayout(QVBoxLayout):
@@ -1109,14 +1109,15 @@ class ToolbarLayout(QVBoxLayout):
         self.parent.map_widget.set_crosshair(0, 0)
     def SCL_master(self, ask=True, mode=None):
         # ボタン追加
-        self.add_content(
-            AddedContent_SCL(
-                item=None, 
-                info={"content":"preprocess", "type":"SCL", "detail":"", "draw":"none", "data":""}, 
-                parent_window=self.parent
-            )
+        self.parent.spectrum_widget.set_N_overlayed_lines(1)
+        added_content = AddedContent_SCL(
+            item=None, 
+            info={"content":"preprocess", "type":"SCL", "detail":"", "draw":"spc_overlay", "data":[None, None, SCL_Data()]}, 
+            parent_window=self.parent
         )
-
+        self.add_content(added_content)
+        # スペクトルの表示
+        added_content.hide_show_item(shoe=True)
     # 構築画像保存
     def save_all_maps(self):
         if not self.isImageSet:
@@ -1280,7 +1281,6 @@ class SpectrumWidget(pg.PlotWidget):
             )
         )
         self.master_spectrum.setData(self.spc_file.x, self.spc_file.sub[0].y)
-        # self.added_items_dict = {"CRR items": pg.PlotCurveItem(pen=gf.mk_crr_pen())}
         # mapの場合テキスト追加（どこの位置のスペクトルかということ）
         if self.spc_file.fnsub > 1:
             self.text_item = pg.TextItem(text="   x=0, y=0")
@@ -1294,6 +1294,10 @@ class SpectrumWidget(pg.PlotWidget):
         current_plot = self.getPlotItem().vb.addedItems[0]
         plot_data_item = pg.PlotDataItem(current_plot.xData, current_plot.yData, fillLevel=0)
         return plot_data_item
+    def update_spectrum(self):
+        # spc_file のデータが更新された時。
+        sub_idx = self.spc_file.get_sub_idx(self.cur_x, self.cur_y)
+        self.master_spectrum.setData(self.spc_file.x, self.spc_file.sub[sub_idx].y)
     # 現在表示されているスペクトルを(vb2に)追加
     def add_spectrum_to_v2(self, plot_data_item):
         # vb2への追加がはじめての場合のみ、右軸を表示する（それ以外の場合は設定をそのまま引継ぐ）
@@ -1311,8 +1315,7 @@ class SpectrumWidget(pg.PlotWidget):
         self.text_item.setText("  x=%d, y=%d"%(self.cur_x, self.cur_y))
         # オリジナルのスペクトル
         sub_idx = self.spc_file.get_sub_idx(self.cur_x, self.cur_y)
-        y_list = self.spc_file.sub[sub_idx].y
-        self.master_spectrum.setData(self.spc_file.x, y_list)
+        self.master_spectrum.setData(self.spc_file.x, self.spc_file.sub[sub_idx].y)
         self.display_map_spectrum()
     def set_N_additional_lines(self, N):
         N_additional_lines = len(self.additional_lines)
@@ -1449,6 +1452,22 @@ class SpectrumWidget(pg.PlotWidget):
         else:
             data = self.parent.cur_overlayed_map_info["data"]
             draw = self.parent.cur_overlayed_map_info["draw"]
+            if draw == "spc_overlay":   # [param1, param2, spc_data]
+                self.set_N_overlayed_lines(data[2].N_lines(sub_idx))
+                self.set_N_overlayed_fill_btwn_items(data[2].N_ranges(sub_idx))
+                for idx, (line_data_x, line_data_y, kwargs) in enumerate(data[2].get_line_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.overlayed_lines[idx].setData(line_data_x, line_data_y, **kwargs)
+                for idx, (btm_line, top_line, kwargs) in enumerate(data[2].get_region_data_list(sub_idx=sub_idx, original_spc_file=self.spc_file)):
+                    self.additional_fill_btwn_items[idx].setCurves(btm_line, top_line, **kwargs)
+            else:
+                raise Exception("unknow kwargs")
+    def display_spectrum(self):
+        if self.parent.cur_overlayed_spc_info is None:
+            print("necessary3")
+        else:
+            data = self.parent.cur_overlayed_spc_info["data"]
+            draw = self.parent.cur_overlayed_spc_info["draw"]
+            sub_idx = 0
             if draw == "spc_overlay":   # [param1, param2, spc_data]
                 self.set_N_overlayed_lines(data[2].N_lines(sub_idx))
                 self.set_N_overlayed_fill_btwn_items(data[2].N_ranges(sub_idx))

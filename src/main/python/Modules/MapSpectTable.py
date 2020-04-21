@@ -1,22 +1,27 @@
 # -*- Coding: utf-8 -*-
 
+import os
 import functools
-
+import re
 
 from PyQt5.QtWidgets import (
     QWidget, 
     QVBoxLayout, 
     QHBoxLayout,  
+    QFileDialog, 
     QSizePolicy, 
     QSpacerItem, 
     QDesktopWidget, 
-    QMenuBar, 
+    QMenu, 
     QScrollArea, 
     QLabel, 
     QPushButton, 
     QSplitter, 
     )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import (
+    Qt, 
+    QVariant, 
+    )
 
 from . import general_functions as gf
 from . import my_widgets as my_w
@@ -81,10 +86,6 @@ class MapSpectTable(QWidget):
         self.btn_p_NR.setToolTip("PCA-based noise reduction")
         self.btn_p_NR.setFixedWidth(50)
         self.btn_p_NR.setEnabled(False)
-        # self.btn_p_SCL = QPushButton("SCL")
-        # self.btn_p_SCL.setToolTip("scaling factor")
-        # self.btn_p_SCL.setFixedWidth(50)
-        # self.btn_p_SCL.setEnabled(False)
         self.btn_p_revert = QPushButton("revert")
         self.btn_p_revert.setFixedWidth(100)
         self.btn_p_revert.setEnabled(False)
@@ -95,11 +96,9 @@ class MapSpectTable(QWidget):
         btnLayout_p.setContentsMargins(0,0,0,0)
         btnLayout_p.addWidget(self.btn_p_CRR)
         btnLayout_p.addWidget(self.btn_p_NR)
-        # btnLayout_p.addWidget(self.btn_p_SCL)
         btnLayout_p.addStretch(1)
         btnLayout_p.addWidget(self.btn_p_hide_show)
         btnLayout_p.addWidget(self.btn_p_revert)
-        self.btn_name_list_p = ["revert", "hide_show"]
         # マップボタンエリア
         self.btn_m_export = QPushButton("export")
         self.btn_m_export.setFixedWidth(100)
@@ -116,7 +115,6 @@ class MapSpectTable(QWidget):
         btnLayout_m.addWidget(self.btn_m_export)
         btnLayout_m.addWidget(self.btn_m_remove)
         btnLayout_m.addWidget(self.btn_m_hide_show)
-        self.btn_name_list_m = ["export", "remove", "hide_show"]
         # スペクトルボタンエリア
         self.btn_s_export = QPushButton("export")
         self.btn_s_export.setFixedWidth(100)
@@ -133,7 +131,6 @@ class MapSpectTable(QWidget):
         btnLayout_s.addWidget(self.btn_s_export)
         btnLayout_s.addWidget(self.btn_s_remove)
         btnLayout_s.addWidget(self.btn_s_hide_show)
-        self.btn_name_list_s = ["export", "remove", "hide_show"]
         # レイアウト
         pre_area_layout.addLayout(btnLayout_p)
         map_area_layout.addLayout(btnLayout_m)
@@ -166,13 +163,17 @@ class MapSpectTable(QWidget):
         # イベントコネクト
         self.btn_p_CRR.clicked.connect(self.btn_CRR_clicked_p)
         self.btn_p_NR.clicked.connect(self.btn_NR_clicked_p)
-        # self.btn_p_SCL.clicked.connect(self.btn_p_SCL_clicked_p)
         self.btn_p_revert.clicked.connect(self.btn_revert_clicked_p)
         self.btn_p_hide_show.clicked.connect(self.btn_hide_show_clicked_p)
-        self.btn_s_export.clicked.connect(self.btn_export_clicked_s)
+        s_export_menu = QMenu()
+        self.s_e_action_dict = {}
+        self.s_e_action_dict["as spc"] = s_export_menu.addAction('as spc', functools.partial(self.btn_export_clicked_s, ext=".spc"))
+        self.s_e_action_dict["as text"] = s_export_menu.addAction('as text', functools.partial(self.btn_export_clicked_s, ext=".txt"))
+        self.s_e_action_dict["as info"] = s_export_menu.addAction('as info', functools.partial(self.btn_export_clicked_s, ext=".info"))
+        self.btn_s_export.setMenu(s_export_menu)
         self.btn_s_remove.clicked.connect(self.btn_remove_clicked_s)
         self.btn_s_hide_show.clicked.connect(self.btn_hide_show_clicked_s)
-        self.btn_m_export.clicked.connect(self.btn_export_clicked_m)
+        self.btn_m_export.clicked.connect(functools.partial(self.btn_export_clicked_m, ext=".spc"))
         self.btn_m_remove.clicked.connect(self.btn_remove_clicked_m)
         self.btn_m_hide_show.clicked.connect(self.btn_hide_show_clicked_m)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -183,91 +184,115 @@ class MapSpectTable(QWidget):
         content_widget.setFixedHeight(30)
         content_widget.addWidget(QLabel(added_content.info_to_display()))
         content_widget.addStretch(1)
-        for widget in added_content.widgets_to_display():
+        for widget in added_content.init_widgets():
             content_widget.addWidget(widget)
         content_widget.focuse_changed.connect(added_content.focus_unfocus)
-        content_widget.focuse_changed.connect(functools.partial(getattr(self, "%s_focus_changed"%added_content.info["content"]), allowed_btn_list=added_content.allowed_btn_list))
+        content_widget.focuse_changed.connect(functools.partial(self.half_focus_process, added_content=added_content))
+        content_widget.focuse_changed.connect(functools.partial(getattr(self, "%s_focus_changed"%added_content.info["content"]), window_type=added_content.info["type"]))
         target_layout.insertWidget(target_layout.count()-1, content_widget)
         return content_widget
-    def preprocess_focus_changed(self, event=None, allowed_btn_list=None):
+    def btnSetEnabled(self, enable=None, target_layout=None, key_list=None):
+        for key in key_list:
+            cur_btn = getattr(self, "btn_{0}_{1}".format(target_layout, key))
+            cur_btn.setEnabled(enable)
+            cur_btn.repaint()
+    def preprocess_focus_changed(self, event=None, window_type=None):
+        # とりあえず全て disable
+        self.btnSetEnabled(enable=False, target_layout="p", key_list=["revert", "hide_show"])
+        # フォーカスされなかった場合
+        if not event:
+            return
         # フォーカスされた場合
-        if event:
-            for key in self.btn_name_list_p:
-                cur_btn = getattr(self, "btn_p_%s"%key)
-                if key in allowed_btn_list:
-                    cur_btn.setEnabled(True)
-                else:
-                    cur_btn = getattr(self, "btn_p_%s"%key)
-                    cur_btn.setEnabled(False)
-                cur_btn.repaint()
+        if window_type == "POI":
+            self.btnSetEnabled(enable=True, target_layout="p", key_list=["revert", "hide_show"])
+        elif window_type in ("NR", "CRR", "range-setting"):
+            pass
         else:
-            for key in self.btn_name_list_p:
-                cur_btn = getattr(self, "btn_p_%s"%key)
-                cur_btn.setEnabled(False)
-                cur_btn.repaint()
-    def spectrum_focus_changed(self, event=None, allowed_btn_list=None):
+            raise Exception("unknown button type")
+    def spectrum_focus_changed(self, event=None, window_type=None):
+        # とりあえず全て disable
+        self.btnSetEnabled(enable=False, target_layout="s", key_list=["export", "remove", "hide_show"])
+        # フォーカスされなかったた場合
+        if not event:
+            return
         # フォーカスされた場合
-        if event:
-            for key in self.btn_name_list_s:
-                cur_btn = getattr(self, "btn_s_%s"%key)
-                if key in allowed_btn_list:
-                    cur_btn.setEnabled(True)
-                else:
-                    cur_btn = getattr(self, "btn_s_%s"%key)
-                    cur_btn.setEnabled(False)
-                cur_btn.repaint()
+        if window_type == "original":
+            self.btnSetEnabled(enable=True, target_layout="s", key_list=["export", "hide_show"])
+            self.s_e_action_dict["as info"].setEnabled(False)
+        elif window_type in ("added", "subtracted"):
+            self.btnSetEnabled(enable=True, target_layout="s", key_list=["export", "remove", "hide_show"])
+            self.s_e_action_dict["as info"].setEnabled(False)
+        elif window_type == "unmixed":
+            self.btnSetEnabled(enable=True, target_layout="s", key_list=["export", "remove", "hide_show"])
+            self.s_e_action_dict["as info"].setEnabled(True)
+        elif window_type == "POI":
+            self.btnSetEnabled(enable=True, target_layout="s", key_list=["remove"])
+            self.s_e_action_dict["as info"].setEnabled(False)
         else:
-            for key in self.btn_name_list_s:
-                cur_btn = getattr(self, "btn_s_%s"%key)
-                cur_btn.setEnabled(False)
-                cur_btn.repaint()
-    def map_focus_changed(self, event=None, allowed_btn_list=None):
+            print(window_type)
+            raise Exception("unknown button type")
+    def map_focus_changed(self, event=None, window_type=None):
+        # とりあえず全て disable
+        self.btnSetEnabled(enable=False, target_layout="m", key_list=["export", "remove", "hide_show"])
+        # フォーカスされなかったた場合
+        if not event:
+            return
         # フォーカスされた場合
-        if event:
-            for key in self.btn_name_list_m:
-                cur_btn = getattr(self, "btn_m_%s"%key)
-                if key in allowed_btn_list:
-                    cur_btn.setEnabled(True)
-                else:
-                    cur_btn = getattr(self, "btn_m_%s"%key)
-                    cur_btn.setEnabled(False)
-                cur_btn.repaint()
+        if window_type == "added":
+            self.btnSetEnabled(enable=True, target_layout="m", key_list=["remove", "hide_show"])
+        elif window_type == "unmixed":
+            self.btnSetEnabled(enable=True, target_layout="m", key_list=["export", "remove", "hide_show"])
+        elif window_type == "subtracted":
+            self.btnSetEnabled(enable=True, target_layout="m", key_list=["export", "remove", "hide_show"])
         else:
-            for key in self.btn_name_list_m:
-                cur_btn = getattr(self, "btn_m_%s"%key)
-                cur_btn.setEnabled(False)
-                cur_btn.repaint()
-    def focus_map(self, added_content):
-        for idx in range(self.map_layout.count() - 1):
-            if self.map_layout.itemAt(idx).widget().optional_item == added_content:
-                self.map_layout.itemAt(idx).widget().focus()
-                break
+            raise Exception("unknown button type")
+    def focus_content(self, added_content):
+        target_layout = getattr(self, "{0}_layout".format(added_content.info["content"]))
+        for w in target_layout.get_all_items():
+            if w.optional_item == added_content:
+                w.focus()        
+    def half_focus_process(self, added_content):
+        target_layout = getattr(self, "{0}_layout".format(added_content.info["content"]))
+        try:
+            abs_id = added_content.info["data"][2].abs_id
+        except:
+            abs_id = None
+        for w in target_layout.get_all_items():
+            # half focus を使う場合
+            if abs_id is not None:
+                try:
+                    # abs_id が同じものを
+                    if w.optional_item.info["data"][2].abs_id == abs_id:
+                        # 自分自身でなければ、half focuesed にする or しない
+                        if w.optional_item != added_content:
+                            w.half_focus(added_content.focused)
+                        continue
+                except:
+                    pass
+            # half focus を使わない場合
+            if w.half_focus:
+                w.half_focus(False)
     # ボタン系
+    def get_parent_window(self):
+        # original spectrum から元 window をたどる。
+        return self.spectrum_layout.itemAt(0).widget().optional_item.parent_window
     def btn_CRR_clicked_p(self, event=None):
         # CRRが既に登録済みである場合、削除
-        for idx in range(self.preprocess_layout.count() - 1):
-            if self.preprocess_layout.itemAt(idx).widget().optional_item.info["type"] == "CRR":
+        for w in self.preprocess_layout.get_all_items():
+            if w.optional_item.info["type"] == "CRR":
                 self.btn_revert_clicked_p(mode="update")
                 break
         # 登録がなかった場合、original spectrum から元 window をたどる。
         else:
-            self.spectrum_layout.itemAt(0).widget().optional_item.parent_window.toolbar_layout.CRR_master(ask=True, mode="update")
+            self.get_parent_window().toolbar_layout.CRR_master(mode="update")
     def btn_NR_clicked_p(self, event=None):
         # NRが既にある場合は、データを開き直すよう要求
-        for idx in range(self.preprocess_layout.count() - 1):
-            if self.preprocess_layout.itemAt(idx).widget().optional_item.info["type"] == "NR":
+        for w in self.preprocess_layout.get_all_items():
+            if w.optional_item.info["type"] == "NR":
                 self.btn_revert_clicked_p(mode="update")
                 break
         else:
-            self.spectrum_layout.itemAt(0).widget().optional_item.parent_window.toolbar_layout.NR_master(ask=True, mode="update")
-    # def btn_p_SCL_clicked_p(self, event=None):
-    #     # SCLが既にある場合は、データを開き直すよう要求
-    #     for idx in range(self.preprocess_layout.count() - 1):
-    #         if self.preprocess_layout.itemAt(idx).widget().optional_item.info["type"] == "SCL":
-    #             self.btn_revert_clicked_p(mode="update")
-    #             break
-    #     else:
-    #         self.spectrum_layout.itemAt(0).widget().optional_item.parent_window.toolbar_layout.SCL_master(ask=True, mode="update")
+            self.get_parent_window().toolbar_layout.NR_master(mode="update")
     def btn_revert_clicked_p(self, event=None, mode="just revert"):
         if self.preprocess_layout.current_focused_idx is not None:
             # お尻からしか消させない！
@@ -275,7 +300,7 @@ class MapSpectTable(QWidget):
                 warning_popup = popups.WarningPopup("Pre-processes can ony be reverted from the end.")
                 warning_popup.exec_()
                 return
-            cur_content_widget = self.preprocess_layout.get_current_item().widget()
+            cur_content_widget = self.preprocess_layout.get_current_item()
             log = cur_content_widget.optional_item.remove_item(mode=mode)
             if log == "not executed":
                 return log
@@ -285,60 +310,98 @@ class MapSpectTable(QWidget):
             self.preprocess_focus_changed(event=False)
     def btn_hide_show_clicked_p(self, event=None):
         if self.preprocess_layout.current_focused_idx is not None:
-            cur_content_widget = self.preprocess_layout.get_current_item().widget()
-            cur_content_widget.optional_item.hide_show_item()
-    def btn_export_clicked_s(self, event=None):
+            self.preprocess_layout.get_current_item().optional_item.hide_show_item()
+    def btn_export_clicked_s(self, event=None, ext=None):
+        cur_item = self.spectrum_layout.get_current_item().optional_item
         if self.spectrum_layout.current_focused_idx is not None:
-            cur_content_widget = self.spectrum_layout.get_current_item().widget()
-            cur_content_widget.optional_item.export_spectrum()
+            # abs_id がある場合は、それ関連のものを全て export する
+            isUnmixed = cur_item.info["type"] == "unmixed"
+            if isUnmixed:
+                abs_id = cur_item.info["data"][2].abs_id
+                iter_list = []
+                for w in self.spectrum_layout.get_all_items():
+                    if w.optional_item.info["type"] == "unmixed":
+                        if w.optional_item.info["data"][2].abs_id == abs_id:
+                            iter_list.append(w.optional_item)
+            else:
+                iter_list = [cur_item]
+            if ext in (".spc", ".txt"):
+                for idx, i in enumerate(iter_list):
+                    ask = (idx == 0)
+                    i.export_spectrum(ext, ask=ask)
+            elif ext == ".info":
+                if cur_item.info["type"] != "unmixed":
+                    raise Exception("unknown type")
+                cur_item.export_information(ext, ask=True, **self.get_standard_info_list_s(abs_id=abs_id))
+    def get_standard_info_list_s(self, abs_id):
+        standard_info_list = []
+        for w in self.spectrum_layout.get_all_items():
+            try:
+                cur_unmixed_data = w.optional_item.info["data"][2]
+                if (cur_unmixed_data.abs_id == abs_id) & (cur_unmixed_data.standard_type not in ("bd", "ts")):
+                    standard_info_list.append("_".join(w.optional_item.info_to_display().split()))
+            except:
+                pass
+        def path_name_func(path):
+            # example: 20200407_LPCd31OA_10-03_1_unmixed(2600.0-3200.0, #1).info
+            matched = re.fullmatch("(.*\(.*), #.*(\)\.info)", path)
+            print(matched[1] + matched[2])
+            return matched[1] + matched[2]
+        return {"standard_info_list":standard_info_list, "path_name_func":path_name_func}
     def btn_remove_clicked_s(self, event=None):
         if self.spectrum_layout.current_focused_idx is not None:
-            cur_content_widget = self.spectrum_layout.get_current_item().widget()
-            cur_content_widget.optional_item.remove_item()
+            cur_content_widget = self.spectrum_layout.get_current_item()
+            idxes_to_remove = cur_content_widget.optional_item.remove_item()
             # Tableからの削除
-            self.spectrum_layout.remove_current_focused_item()
+            if idxes_to_remove is None:
+                self.spectrum_layout.remove_current_focused_item()
+            else:
+                self.spectrum_layout.remove_items(idxes_to_remove)
             # ボタンをdisable
-            self.spectrum_focus_changed(event=False)
+            self.btnSetEnabled(enable=False, target_layout="s", key_list=["export", "remove", "hide_show"])
     def btn_hide_show_clicked_s(self, event=None):
         if self.spectrum_layout.current_focused_idx is not None:
-            cur_content_widget = self.spectrum_layout.get_current_item().widget()
-            cur_content_widget.optional_item.hide_show_item()
-    def btn_export_clicked_m(self, event=None):
+            self.spectrum_layout.get_current_item().optional_item.hide_show_item()
+    def btn_export_clicked_m(self, event=None, ext=None):
         if self.map_layout.current_focused_idx is not None:
-            cur_content_widget = self.map_layout.get_current_item().widget()
-            cur_content_widget.optional_item.export_spectrum()
+            self.map_layout.get_current_item().optional_item.export_spectrum(ext, ask=True)
     def btn_remove_clicked_m(self, event=None):
         if self.map_layout.current_focused_idx is not None:
-            cur_focused_window = self.map_layout.get_current_item().widget().optional_item.parent_window
-            idxes_to_remove = self.map_layout.get_current_item().widget().optional_item.remove_item()
+            cur_focused_window = self.map_layout.get_current_item().optional_item.parent_window
+            idxes_to_remove = self.map_layout.get_current_item().optional_item.remove_item()
             # Tableからの削除
             if idxes_to_remove is None:
                 self.map_layout.remove_current_focused_item()
             else:
                 self.map_layout.remove_items(idxes_to_remove)
             # ボタンを disable
-            self.map_focus_changed(event=False)
+            self.btnSetEnabled(enable=False, target_layout="m", key_list=["export", "remove", "hide_show"])
             if self.map_layout.count() == 1:
                 cur_focused_window.map_widget.all_images_were_removed()
     def btn_hide_show_clicked_m(self, event=None):
         if self.map_layout.current_focused_idx is not None:
-            cur_content_widget = self.map_layout.get_current_item().widget()
-            cur_content_widget.optional_item.hide_show_item()
-    # フォーカス
+            self.map_layout.get_current_item().optional_item.hide_show_item()
+    # ウィンドウ間のフォーカス移動
     def data_window_closed(self):
         print("window closed")
         self.map_layout.remove_all()
         self.spectrum_layout.remove_all()
+        self.preprocess_layout.remove_all()
+        self.btnSetEnabled(enable=False, target_layout="p", key_list=["NR", "CRR"])
+        self.btnSetEnabled(enable=False, target_layout="s", key_list=["export", "remove", "hide_show"])
+        self.btnSetEnabled(enable=False, target_layout="m", key_list=["export", "remove", "hide_show"])
     def window_focus_changed(self, window):
+        print("window_focus_changed")
         if window.window_type in ("t"):
             return
-        elif window.window_type in ("main", "b"):
-            self.map_layout.remove_all()
-            self.spectrum_layout.remove_all()
-            self.preprocess_layout.remove_all()
+        # レイアウトから一旦全て削除
+        self.map_layout.remove_all()
+        self.spectrum_layout.remove_all()
+        self.preprocess_layout.remove_all()
+        # レイアウトに追加
+        if window.window_type in ("main", "b"):
+            pass
         elif window.window_type in ("s", "ms", "u"):
-            self.map_layout.remove_all()
-            self.spectrum_layout.remove_all()
             for content in window.toolbar_layout.added_content_map_list:
                 content_widget = self.add_content(content)
                 if content.focused:
@@ -351,18 +414,28 @@ class MapSpectTable(QWidget):
                 content_widget = self.add_content(content)
                 if content.focused:
                     content_widget.focus()
+        else:
+            print(window.window_type)
+            raise Exception("unknown window type")
+        # ボタンの show, enable, disable
+        self.btnSetEnabled(enable=False, target_layout="p", key_list=["NR", "CRR"])
+        self.btnSetEnabled(enable=False, target_layout="s", key_list=["export", "remove", "hide_show"])
+        self.btnSetEnabled(enable=False, target_layout="m", key_list=["export", "remove", "hide_show"])
         if window.window_type == "ms":
             self.btn_p_CRR.setEnabled(True)
             self.btn_p_NR.setEnabled(True)
-            # self.btn_p_SCL.setEnabled(False)
-        elif window.window_type == "so":
+        elif window.window_type in ("s", "b"):
             self.btn_p_CRR.setEnabled(False)
             self.btn_p_NR.setEnabled(False)
-            # self.btn_p_SCL.setEnabled(True)
+        elif window.window_type == "u":
+            self.btn_p_CRR.setEnabled(False)
+            self.btn_p_NR.setEnabled(False)
+        elif window.window_type in ("main", "t"):
+            pass
         else:
-            self.btn_p_CRR.setEnabled(False)
-            self.btn_p_NR.setEnabled(False)
-            # self.btn_p_SCL.setEnabled(False)
+            raise Exception("unknown window type")
+        # self.btn_p_CRR.repaint()
+        # self.btn_p_NR.repaint()
     def bring_to_front(self):
         if not self.isVisible():
             self.show()

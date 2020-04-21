@@ -24,6 +24,7 @@ import pyqtgraph as pg
 
 import os, sys
 import spc
+import re
 import numpy as np
 from urllib import parse
 import functools
@@ -37,6 +38,7 @@ from Modules import general_functions as gf
 from Modules import draw
 from Modules import macros
 from Modules import MapSpectTable as mst
+from Modules import SavedPointsTable as spt
 from Modules import output_core as oc
 # インスタンスメソッドを追加
 spc.File.get_shape = gf.get_shape
@@ -46,10 +48,12 @@ spc.File.get_idx = gf.get_idx
 spc.File.get_data = gf.get_data
 spc.File.get_point_intensity_list = gf.get_point_intensity_list
 spc.File.get_total_intensity_list = gf.get_total_intensity_list
-spc.File.set_cfp = gf.set_cfp
 spc.File.write_to_binary = gf.write_to_binary
+spc.File.write_to_object = gf.write_to_object
 spc.File.delete_from_binary = gf.delete_from_binary
+spc.File.delete_from_object = gf.delete_from_object
 spc.File.update_binary = gf.update_binary
+spc.File.update_object = gf.update_object
 spc.File.modify_prep_order = gf.modify_prep_order
 spc.File.toNumPy_2dArray = gf.toNumPy_2dArray
 spc.File.fmNumPy_2dArray = gf.fmNumPy_2dArray
@@ -68,11 +72,13 @@ class MainWindow(QMainWindow):
         self.window_type = "main"
         self.child_window_list = []
         self.current_focused_window = self
+        self.setUnifiedTitleAndToolBarOnMac(False)
         # for Plugins
         self.plugin_func_list = []
         self.temp_variables = {}
         # 予め持っておく window
         self.map_spect_table = mst.MapSpectTable(parent=self)
+        self.poi_manager = spt.PointsOfInterestManager(parent=self)
         self.batch_processing_window_list = []
         # 左列ボタンウィジェット
         self.ButtonField = QWidget()
@@ -89,6 +95,9 @@ class MainWindow(QMainWindow):
         btnMapSpctTable = my_w.CustomPicButton("spct_map_table1.svg", "spct_map_table2.svg", "spct_map_table3.svg", base_path=gf.icon_path)
         btnMapSpctTable.setToolTip("open spectrum-map table")
         btnMapSpctTable.clicked.connect(self.open_map_spect_table)
+        btnPoiManager = my_w.CustomPicButton("poi1.svg", "poi2.svg", "poi3.svg", base_path=gf.icon_path)
+        btnPoiManager.setToolTip("open poi manager")
+        btnPoiManager.clicked.connect(self.open_poi_manager)
         btnNewUnmixingMehod = my_w.CustomPicButton("unmix1.svg", "unmix2.svg", "unmix3.svg", base_path=gf.icon_path)
         btnNewUnmixingMehod.setToolTip("new unmixing method")
         btnNewUnmixingMehod.clicked.connect(self.build_new_unmixing_method)
@@ -135,6 +144,9 @@ class MainWindow(QMainWindow):
         ms_tableAction = my_w.CustomAction(gf.icon_path, "spct_map_table1.svg", "Spctrum-Map Table", self)
         ms_tableAction.setShortcut("Ctrl+T")
         ms_tableAction.triggered.connect(self.open_map_spect_table)
+        poi_managerAction = my_w.CustomAction(gf.icon_path, "poi1.svg", "POI manager", self)
+        poi_managerAction.setShortcut("Meta+T")
+        poi_managerAction.triggered.connect(self.open_poi_manager)
         window_sizeAction = my_w.CustomAction(gf.icon_path, "map_size1.svg", "change window size", self)
         window_sizeAction.triggered.connect(functools.partial(self.change_window_size, compatible_window_types=["ms","s","u","t"]))
         spectrum_x_Action = QAction("set spectrum x range", self)
@@ -177,10 +189,10 @@ class MainWindow(QMainWindow):
         # Unmixing Actions
         umxAction = my_w.CustomAction(gf.icon_path, "unmix1.svg", "Unmixing", self)
         umxAction.setShortcut("Ctrl+U")
-        umxAction.triggered.connect(functools.partial(self.menu_umx, compatible_window_types=["ms"]))
+        umxAction.triggered.connect(functools.partial(self.menu_umx, compatible_window_types=["ms", "s"]))
         umxWithMethodAction = my_w.CustomAction(gf.icon_path, "unmix1.svg", "Unmixing with Method", self)
         umxWithMethodAction.setShortcut("Ctrl+Shift+U")
-        umxWithMethodAction.triggered.connect(functools.partial(self.menu_umxWithMethod, compatible_window_types=["ms"]))
+        umxWithMethodAction.triggered.connect(functools.partial(self.menu_umxWithMethod, compatible_window_types=["ms", "s"]))
         mkUmxMethodAction = my_w.CustomAction(gf.icon_path, "unmix1.svg", "Make New Unmixing Method", self)
         mkUmxMethodAction.setShortcut("Ctrl+Alt+U")
         mkUmxMethodAction.triggered.connect(self.build_new_unmixing_method)
@@ -214,6 +226,7 @@ class MainWindow(QMainWindow):
         viewMenu = self.menu_bar.addMenu(' &View')
         viewMenu.addAction(hs_rightAxisAction)
         viewMenu.addAction(ms_tableAction)
+        viewMenu.addAction(poi_managerAction)
         viewMenu.addAction(window_sizeAction)
         viewMenu.addAction(spectrum_x_Action)
         viewMenu.addAction(spectrum_y_Action)
@@ -263,6 +276,7 @@ class MainWindow(QMainWindow):
         btnLayout.addWidget(btnOpenRecursively)
         btnLayout.addWidget(btnChangeMapSize)
         btnLayout.addWidget(btnMapSpctTable)
+        btnLayout.addWidget(btnPoiManager)
         btnLayout.addWidget(btnNewUnmixingMehod)
         btnLayout.addWidget(btnBatchProcessing)
         btnLayout.addWidget(btnCloseAll)
@@ -356,6 +370,10 @@ class MainWindow(QMainWindow):
     def open_map_spect_table(self, event=None):
         self.map_spect_table.bring_to_front()
         self.map_spect_table.grab_focus()
+    # Points Of Interest 表示
+    def open_poi_manager(self, event=None):
+        self.poi_manager.bring_to_front()
+        self.poi_manager.grab_focus()
     # バッチ処理
     def batch_processing_clicked(self, event=None):
         batch_processing_window = macros.BatchProcessingWindow(parent=self)
@@ -373,6 +391,7 @@ class MainWindow(QMainWindow):
                 del self.child_window_list[idx]
                 break
         self.map_spect_table.data_window_closed()
+        self.poi_manager.data_window_closed()
     # メニューバーからの、window ごとの処理
     def process_opened_window(func):
         def _wrapper(self, compatible_window_types, *args, **kwargs):
@@ -449,7 +468,7 @@ class MainWindow(QMainWindow):
                 y1 = size_setting_popup.spbx_RS1.value()
                 y2 = size_setting_popup.spbx_RS2.value()
                 window.spectrum_widget.setYRange(y1, y2, padding=0)
-            # オート
+            # オート：画面に何も表示されてない場合は、変更しない
             else:
                 xData = window.spectrum_widget.master_spectrum.xData
                 yData = window.spectrum_widget.master_spectrum.yData
@@ -580,12 +599,14 @@ class MainWindow(QMainWindow):
         print("main focused")
         self.current_focused_window = self
         self.map_spect_table.window_focus_changed(self.current_focused_window)
+        self.poi_manager.window_focus_changed(self.current_focused_window)
     def focusOutEvent(self, event):
         pass
     def focusChanged(self, focused_window):
         if self.current_focused_window != focused_window:
             self.current_focused_window = focused_window
             self.map_spect_table.window_focus_changed(self.current_focused_window)
+            self.poi_manager.window_focus_changed(self.current_focused_window)
     def dragEnterEvent(self, event):
         event.accept()
     def dropEvent(self, event):
@@ -607,7 +628,8 @@ class SpectrumWindow(QWidget):
         # 情報
         self.parent = parent
         self.window_type = "s"
-        self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(file_path)
+        self.file_path = file_path
+        self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(self.file_path)
         self.cur_overlayed_spc_info = None
         # 全体設定
         super().__init__()
@@ -623,13 +645,11 @@ class SpectrumWindow(QWidget):
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
         self.setLayout(layout)
-        # outputファイル由来の場合
-        try: 
-            g_width = self.spectrum_widget.spc_file.g_width
-            scaling = self.spectrum_widget.spc_file.scaling
-            self.toolbar_layout.SCL_master()
-        except:
-            pass
+        # 初期処理
+        self.execute_preprocess(mode="init")
+    # スペクトルオンリーのデータは、今のところ preprocess なし
+    def execute_preprocess(self, mode=None):
+        pass
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
@@ -647,16 +667,14 @@ class MapSpectWindow(QWidget):
         self.window_type = "ms"
         self.file_path = file_path
         self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(self.file_path)
-        self.cur_displayed_map_info = None
-        self.cur_overlayed_map_info = None
+        self.cur_displayed_map_content = None
+        self.cur_overlayed_map_content = None
         # 全体設定
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.toolbar_layout = draw.ToolbarLayout(self.window_type, parent=self) # map & spectrum
         self.map_widget = draw.MapWidget(spc_file, parent=self)
         self.spectrum_widget = draw.SpectrumWidget(spc_file, parent=self)
-        # 初期処理
-        self.toolbar_layout.execute_preprocess(mode="init")
         # 背景
         # self.setObjectName("MapSpectWindow")   # childWidgetに影響を与えないためのID付け
         # self.setStyleSheet('QWidget#MapSpectWindow{background-color: %s}'%gf.dbg_color)
@@ -670,6 +688,8 @@ class MapSpectWindow(QWidget):
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
         self.setLayout(layout)
+        # 初期処理
+        self.execute_preprocess(mode="init")
     def set_window_title(self):
         self.setWindowTitle(
             "{0} ({1}(x) x {2}(y) x {3}(spec.))".format(
@@ -678,6 +698,9 @@ class MapSpectWindow(QWidget):
                 self.spectrum_widget.spc_file.fnpts
             )
         )
+    def execute_preprocess(self, mode=None):
+        self.toolbar_layout.execute_preprocess(mode=mode)
+        self.toolbar_layout.execute_poi(mode=mode)
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
@@ -693,17 +716,29 @@ class UnmixingMethodWindow(QWidget):
         # 情報
         self.parent = parent
         self.window_type = "u"
+        self.file_path = file_path
+        self.dir_path, self.file_name, self.file_name_wo_ext = None, None, None
         # 全体設定
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         # 操作パネルとグラフ
         self.toolbar_layout = draw.ToolbarLayout(self.window_type, parent=self)  # spectrum
         self.spectrum_widget = draw.SpectrumWidget(spc_file=None, parent=self)
+        del self.toolbar_layout.added_content_spectrum_list[0]                  # master_spectrum を消す
+        self.set_text(N_poi=0)
         # vb1は、オリジナルスペクトル追加用なので使わないです、それに伴っての諸々の設定
-        self.spectrum_widget.plotItem.vb.hide()
         self.spectrum_widget.vb2.setMouseMode(pg.ViewBox.RectMode)
         self.spectrum_widget.vb2.setYLink(self.spectrum_widget.plotItem.vb) # XLinkは常にしてる
         self.spectrum_widget.vb2.addItem = self.wrapper_for_addItem(self.spectrum_widget.vb2.addItem)
+        # 左下の 'A' を押して全体表示しようとした場合、そのままだと vb1 をターゲットにしてしまうので、それを修正
+        def autoBtnClicked_w(btn_item):
+            if btn_item.mode == 'auto':
+                self.spectrum_widget.vb2.enableAutoRange()
+                btn_item.hide()
+            else:
+                self.spectrum_widget.vb2.disableAutoRange()
+        self.spectrum_widget.plotItem.autoBtn.clicked.disconnect()
+        self.spectrum_widget.plotItem.autoBtn.clicked.connect(autoBtnClicked_w)
         # レイアウト
         layout = QHBoxLayout()
         layout.addLayout(self.toolbar_layout)
@@ -711,17 +746,24 @@ class UnmixingMethodWindow(QWidget):
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
         self.setLayout(layout)
-        # 初期設定
+        # 初期処理
+        self.execute_preprocess(mode="newWin")
         if file_path is None:
             self.dir_path = gf.settings["method dir"]
             self.file_name = "new_unmixing_method.umx"
             self.file_name_wo_ext = "new_unmixing_method"
         else:
             self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(file_path)
-            with open(file_path, 'rb') as f:
-                UMX = pickle.load(f)
+            UMX = gf.load_umx(self.file_path)
             self.display_method(UMX)
+            self.spectrum_widget.vb2.autoRange()
         self.setWindowTitle(self.file_name)
+    def execute_preprocess(self, mode=None):
+        # set prep_order to pseudo data
+        new_prep_order = [["set_range", {"mode":mode, "left":None, "right":None}]]
+        self.spectrum_widget.spc_file.write_to_object(master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order])
+        # preprocess
+        self.toolbar_layout.execute_preprocess(mode=mode)
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
@@ -741,21 +783,24 @@ class UnmixingMethodWindow(QWidget):
             return result
         return new_function
     def display_method(self, UMX):
-        for procedure in UMX.procedures:
-            # とりあえず、登録されてるスペクトルを表示
-            if procedure == "unmix":
-                # スペクトル追加
-                for spc_like, file_path in zip(UMX.spc_like_list, UMX.file_path_list):
-                    plot_data_item = pg.PlotDataItem(spc_like.x, spc_like.sub[0].y, fillLevel=0)
-                    self.toolbar_layout.add_plot_data_item(plot_data_item, detail=file_path, values=[], data=spc_like)
-                # bg追加
-                if UMX.isBackgroundSet:
-                    self.toolbar_layout.include_CellFreePosition()
-                # range設定
-                self.toolbar_layout.range_left.setText(str(UMX.target_range[0]))
-                self.toolbar_layout.range_right.setText(str(UMX.target_range[1]))
+        for procedure, kwargs in UMX.procedures:
+            if procedure == "execute_unmixing":
+                self.toolbar_layout.set_range(mode="init", **kwargs)
+                continue
+            elif procedure == "add_spectra_from_POI":
+                self.toolbar_layout.include_POI(ask=False, poi_key=kwargs["info"]["data"])
+            func = getattr(self.toolbar_layout, procedure)
+            log = func(**kwargs)
         # 右軸閉じる
         self.spectrum_widget.showAxis("right", show=False)
+    def set_text(self, N_poi):
+        self.spectrum_widget.text_item.setText("   Number of POI: {0}".format(N_poi))
+    def add_poi(self):
+        N_poi = re.fullmatch("   Number of POI: ([0-9]+)", self.spectrum_widget.text_item.textItem.document().toPlainText())[1]
+        self.set_text(str(int(N_poi) + 1))
+    def sbt_poi(self):
+        N_poi = re.fullmatch("   Number of POI: ([0-9]+)", self.spectrum_widget.text_item.textItem.document().toPlainText())[1]
+        self.set_text(str(int(N_poi) - 1))
 
 ###########
 ###########

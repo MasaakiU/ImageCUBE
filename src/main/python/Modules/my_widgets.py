@@ -3,8 +3,8 @@
 
 import os
 import numpy as np
+import re
 
-from PyQt5 import QtCore
 from PyQt5.QtWidgets import (
     QAbstractButton, 
     QSpacerItem, 
@@ -27,7 +27,15 @@ from PyQt5.QtGui import (
     QMenu, 
     QSizePolicy, 
     )
-from PyQt5.QtCore import Qt, pyqtSignal, QCoreApplication
+from PyQt5.QtCore import (
+    Qt, 
+    pyqtSignal, 
+    QCoreApplication, 
+    QEvent, 
+    QSize, 
+    QPoint, 
+    QRect
+    )
 import pyqtgraph as pg
 
 from . import general_functions as gf
@@ -74,10 +82,10 @@ class CustomPicButton(QAbstractButton):
     def leaveEvent(self, event):
         self.update()
     def sizeHint(self):
-        return(QtCore.QSize(self.width, self.height))
+        return(QSize(self.width, self.height))
     # def mousePressEvent(self, event):
     #     QAbstractButton.mousePressEvent(self, event)
-    #     if event.button() == QtCore.Qt.RightButton :
+    #     if event.button() == Qt.RightButton :
     #         self.rightClick.emit()
     #         # print ('right click')
 
@@ -157,11 +165,16 @@ class ClickableLayout(QVBoxLayout):
         self.current_focused_idx = idx
     def unfocused(self):
         self.current_focused_idx = None
+    def unfocus_all(self):
+        for idx in range(self.count() - 1):
+            self.itemAt(idx).widget().unfocus()
     def get_current_item(self):
         if self.current_focused_idx is not None:
-            return self.itemAt(self.current_focused_idx)
+            return self.itemAt(self.current_focused_idx).widget()
         else:
             return None
+    def get_all_items(self):
+        return [self.itemAt(i).widget() for i in range(self.count() - 1)]
     def all_widgets(self):
         return [self.itemAt(idx).widget() for idx in range(self.count()-1)]
     def remove_current_focused_item(self, new_focus=False):
@@ -208,6 +221,11 @@ class ClickableLayout(QVBoxLayout):
             self.removeWidget(cur_widget)
             self.current_focused_idx += 1
             self.insertWidget(self.current_focused_idx, cur_widget)
+    def set_focus(self, idx):
+        if idx < 0:
+            idx += self.count()
+        self.itemAt(idx).widget().focus()
+        self.current_focused_idx = idx
 
 class ClickableQWidget(PaintableQWidget):
     focuse_changed = pyqtSignal(bool)   # TrueでFocused, Falseでunfocused
@@ -217,9 +235,12 @@ class ClickableQWidget(PaintableQWidget):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.optional_item = optional_item
         self.isFocused = False
+        self.isHalf = False
         self.normal_c = normal_c
         self.hover_c = hover_c
         self.focused_c = focused_c
+        self.half_normal_c = self.average_of_color(self.normal_c, self.focused_c)
+        self.half_hover_c = self.average_of_color(self.hover_c, self.focused_c)
         # レイアウト
         self.layout = QHBoxLayout()
         self.layout.setContentsMargins(0,0,0,0)
@@ -235,18 +256,27 @@ class ClickableQWidget(PaintableQWidget):
             )
         # イベントコネクト
         self.mousePressEvent = self.w_mousePressEvent
-
+    def average_of_color(self, c1, c2):
+        color_list1 = re.fullmatch("rgb\(([0-9]+),([0-9]+),([0-9]+)\)", c1)
+        color_list2 = re.fullmatch("rgb\(([0-9]+),([0-9]+),([0-9]+)\)", c2)
+        c_mean = [int((int(color_list1[i]) + int(color_list2[i])) / 2) for i in range(1,4)]
+        return "rgb({0[0]},{0[1]},{0[2]})".format(c_mean)
     def addWidget(self, widget):
         self.layout.addWidget(widget)
     def addStretch(self, value):
         self.layout.addStretch(value)
-
     def w_mousePressEvent(self, event):
         if self.isFocused:
             self.unfocus()
         else:
             self.focus()
+        event.accept()
     def focus(self, event=None, unfocus_parent=True):
+        if self.isFocused:
+            return
+        # self.grabKeyboard()
+        if unfocus_parent:  # その他処理をする場合は、先に全て済ませた後、スタイルシートを変更する
+            self.parent.focused(self)
         self.setStyleSheet(
             """
             ClickableQWidget{border:1px solid Gray; background-color:%s}
@@ -254,12 +284,14 @@ class ClickableQWidget(PaintableQWidget):
             """%self.focused_c
         )
         self.isFocused = True
-        # self.grabKeyboard()
-        if unfocus_parent:
-            self.parent.focused(self)
-        # シグナル
         self.focuse_changed.emit(True)
+        self.repaint()
+        QCoreApplication.processEvents()
     def unfocus(self, event=None):
+        if not self.isFocused:
+            return
+        self.releaseKeyboard()
+        self.parent.unfocused() # その他処理をする場合は、先に全て済ませた後、スタイルシートを変更する
         self.setStyleSheet(
             """
             ClickableQWidget{border:1px solid gray; background-color:%s; color:black}
@@ -267,15 +299,29 @@ class ClickableQWidget(PaintableQWidget):
             ClickableQWidget:hover{border:1px solid gray; background-color:%s; color:black}
             """%(self.normal_c, self.hover_c, self.focused_c)
             )
-        QCoreApplication.processEvents()
         self.isFocused = False
-        self.releaseKeyboard()
-        self.parent.unfocused()
-        # シグナル
         self.focuse_changed.emit(False)
-
-
-
+        self.repaint()
+        QCoreApplication.processEvents()
+    # 基本的に、self.isFocused とは無関係。使いたい場合は、勝手に外部からやってください。クラス内部での処理は一切行いません。
+    def half_focus(self, event=None):
+        if (self.isHalf and event) or ((not self.isHalf) and (not event)):
+            return
+        if event:
+            color_list = (self.half_normal_c, self.half_hover_c, self.focused_c)
+        else:
+            color_list = (self.normal_c, self.hover_c, self.focused_c)
+        self.setStyleSheet(
+            """
+            ClickableQWidget{border:1px solid gray; background-color:%s; color:black}
+            ClickableQWidget:hover:!pressed{border:1px solid gray; background-color:%s; color:black}
+            ClickableQWidget:hover{border:1px solid gray; background-color:%s; color:black}
+            """%color_list
+        )
+        self.isHalf = event
+        # シグナルは何も出さない
+        self.repaint()
+        QCoreApplication.processEvents()
 
 # Tick無し、axis無しヒストグラム；最大、最小の値を表示してあげられる
 # autoかfixのチェックボックス作る
@@ -376,6 +422,29 @@ class CustomHistogramLUTWidget(QWidget):
         self.item.region.setBounds([min(im_min_value, set_min_value), max(im_max_value, set_max_value)])
         self.setLevels(set_min_value, set_max_value)
         self.imageItem().setLevels([set_min_value, set_max_value])
+
+class CustomFillBetweenItems():
+    def __init__(self, curve1=None, curve2=None, brush=None, pen=None):
+        self.curve1 = curve1
+        self.curve2 = curve2
+        self.fbtwn_item = pg.FillBetweenItem(curve1=self.curve1, curve2=self.curve2, brush=brush, pen=None)
+        for m in ["opts"]:
+            setattr(self, m, getattr(self.curve1, m))
+        self.opts["fillBrush"] = self.fbtwn_item.brush()
+        self.setPen(pen)
+    def setBrush(self, *args, **kwds):
+        self.fbtwn_item.setBrush(*args, **kwds)
+        self.opts["fillBrush"] = self.fbtwn_item.brush()
+    def setPen(self, *args, **kwds):
+        self.curve1.setPen(*args, **kwds)
+        self.curve2.setPen(*args, **kwds)
+        self.opts["pen"] = self.curve1.opts["pen"]
+    def all_items(self):
+        return self.curve1, self.curve2, self.fbtwn_item
+    def setVisible(self, arg):
+        self.curve1.setVisible(arg)
+        self.curve2.setVisible(arg)
+        self.fbtwn_item.setVisible(arg)
 
 # class CustomPathSetLayout(QHBoxLayout):
 #     def __init__(self, initial_text=""):

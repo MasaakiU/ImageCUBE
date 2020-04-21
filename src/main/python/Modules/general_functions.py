@@ -8,11 +8,12 @@ import re
 import spc
 import pickle
 from spc.spc import subFile
-from scipy.optimize import minimize_scalar
+from scipy.optimize import lsq_linear
 from scipy.stats import t   # method を使用する際に必要
 
 import copy
 import glob
+import json
 
 from PIL import Image
 import struct
@@ -45,7 +46,7 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.6.0"
+ver = "0.6.1"
 print("version: %s"%ver)
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -339,7 +340,6 @@ def into_2_products(n):
 #     btm95 = result.x - t.ppf(0.95, df=d_freedom) * SE
 #     return result.x, SE, t_vals, p, btm95
 
-
 # 与えられた範囲XにおけるYの最大値・最小値を求める
 def get_local_maximum(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
@@ -350,23 +350,16 @@ def get_local_minimum(x_list, y_list, x_range):
 def get_local_minmax(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
     local_y = y_list[local_area]
-    return(local_y.min(), local_y.max())
-def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, to_zero):
-    # 引き算したあとの関数を直線近似した際の、二乗誤差を求める関数
-    if not to_zero:
-        def rnorm(n):
-            diff_y_list = master_y_list - n * added_regional_y_list
-            # 直線近似（a:傾き、b:切片）
-            params, residuals, rank, s = np.linalg.lstsq(np.vstack([master_x_list, np.ones(len(master_x_list))]).T, diff_y_list, rcond=-1)
-            return residuals[0]
+    if len(local_y) > 0:
+        return local_y.min(), local_y.max()
     else:
-        def rnorm(n):
-            diff_y_list = master_y_list - n * added_regional_y_list
-            # 単純に 0 に近づける
-            return (diff_y_list ** 2).sum()
-    optimization_results = minimize_scalar(rnorm, bounds=(0, np.inf))
-    umx_height_value = -optimization_results.x # [係数リスト（-optimization_results.x = -n）, オリジナル]
-    return umx_height_value
+        return 0, 1
+def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, to_zero):
+    AT = np.vstack((added_regional_y_list, master_x_list, np.ones_like(master_x_list)))
+    x = lsq_linear(AT.T, master_y_list).x
+    if not to_zero:
+        x[1:3] = 0
+    return x
 
 ###########################
 
@@ -438,37 +431,6 @@ def get_sub_idx(self, x_idx, y_idx):
     except:
         return 0
 
-def set_cfp(self, file_path, x, y, z=1):
-    # ファイルの存在チェック
-    if os.path.exists(file_path):
-        # 既に一度書かれていたら、一度削除
-        if b"[cfp]" in self.log_other:
-            deleted_length = delete_cfp(file_path)
-        else:
-            deleted_length = 0
-        inserted_length = generate_cfp(file_path, x, y, z)
-        update_logsizd(file_path, self.flogoff, inserted_length-deleted_length)
-    else:
-        from . import popups
-        warning_popup = popups.WarningPopup("Cannot find the original '.spc' file. \nIt could be moved or deleted. \nThe Cell Free Position will not be saved.")
-        warning_popup.exec_()
-        return
-    # 実際に更新されたバイナルファイルに合うように、辞書など追加
-    self.log_other.append(b"[cfp]")
-    self.log_dict[b"cfp_x"] = x
-    self.log_dict[b"cfp_y"] = y
-    self.log_dict[b"cfp_z"] = z
-def generate_cfp(file_path, x, y, z=1):
-    with open(file_path,'rb+') as f:
-        insert_txt = ("\n[cfp]\r\ncfp_x=%d\r\ncfp_y=%d\r\ncfp_z=%d\r\n[cfp]\r\n"%(x, y, z)).encode("utf-8")
-        insert(f, insert_txt, -1, 2)
-    return len(insert_txt)
-def delete_cfp(file_path):
-    with open(file_path,'rb+') as f:
-        remove_re = b"\n\[cfp\]\r\ncfp_x=[0-9]+\r\ncfp_y=[0-9]+\r\ncfp_z=[0-9]+\r\n\[cfp\]\r\n"
-        matchedObject = remove_between(f, remove_re)
-    return len(matchedObject.group(0))
-
 # 書き込み
 def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=True):
     # ファイルの存在チェック
@@ -487,9 +449,22 @@ def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=T
         return
     # 実際に更新されたバイナルファイルに合うように、辞書など追加
     if log_dict:
-        for key, data in zip(key_list, data_list):
-            self.log_dict[key.encode()] = data
-        self.log_other.append("[{0}]".format(master_key).encode())
+        self.write_to_object(master_key, key_list, data_list)
+def write_to_object(self, master_key, key_list, data_list):
+    print(data_list)
+    for key, data in zip(key_list, data_list):
+        print(key, data)
+        self.log_dict[key.encode()] = data
+    # log_other には同じキーが 2 つ入ってる
+    binary_master_key = "[{0}]".format(master_key).encode()
+    self.log_other.append(binary_master_key)
+    self.log_other.append(binary_master_key)
+    # log_content
+    self.log_content.append(binary_master_key)
+    for key, data in zip(key_list, data_list):
+        self.log_content.append("{0}={1}".format(key, data).encode())
+    self.log_content.append(binary_master_key)
+    self.log_content.append("".encode())
 def data2txt(data):
     return str(data).replace("\n", "").replace(" ", "")
 # 削除
@@ -508,13 +483,29 @@ def delete_from_binary(self, file_path, master_key, key_list, log_dict=True):
         warning_popup.exec_()
         return
     if log_dict:
-        for key in key_list:
-            del self.log_dict[key.encode()]
-        self.log_other.remove("[{0}]".format(master_key).encode())
+        self.delete_from_object(master_key, key_list)
+def delete_from_object(self, master_key, key_list):
+    for key in key_list:
+        del self.log_dict[key.encode()]
+    # log_other には同じキーが 2 つ入ってる
+    binary_master_key = "[{0}]".format(master_key).encode()
+    self.log_other.remove(binary_master_key)
+    self.log_other.remove(binary_master_key)
+    # log_content
+    index = self.log_content.index(binary_master_key)
+    N = 0
+    while N < 2:
+        content = self.log_content.pop(index)
+        if content == binary_master_key:
+            N += 1
+    del self.log_content[index] # master_key 間 の b'' を削除
 # 更新
 def update_binary(self, file_path, master_key, key_list, data_list, log_dict=True):
     self.delete_from_binary(file_path, master_key, key_list, log_dict=log_dict)
     self.write_to_binary(file_path, master_key, key_list, data_list, log_dict=log_dict)
+def update_object(self, master_key, key_list, data_list):
+    self.delete_from_object(master_key, key_list)
+    self.write_to_object(master_key, key_list, data_list)
 def modify_prep_order(self, file_path, mode, key, kwargs, log_dict):
     new_prep_order = self.log_dict[b"prep_order"]
     if mode == "remove":
@@ -546,14 +537,12 @@ def spc_init(spc_file, file_path):
     # を読んでるから、長く読んでしまっていた。正しくは下記。（オリジナルの spc.py のライブラリを編集して使うこと）
         # flogoff + logtxto ~ flogoff + logtxto + logsizd - logtxto
     # logファイルは幸いなことに一番最後に書かれてる（プラスして\x00が1文字入ってはいるが）:一致してるかを見る
-
-    print("init")
-
     update = legacy_function_to_correct_logsizd(file_path, spc_file.flogoff, spc_file.length)
     if update:
         spc_file = open_spc_spcl(file_path)
     ###
     # Preprocesses の前処理
+    ###
     if b"[PreP]" not in spc_file.log_other:
         new_prep_order = []
         spc_file.write_to_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
@@ -567,7 +556,7 @@ def spc_init(spc_file, file_path):
         y = product_y_list[middle_idx]
         z = 1
         size = [x, y, z]
-        spc_file.write_to_binary(file_path, master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=size, log_dict=True)        
+        spc_file.write_to_binary(file_path, master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=size, log_dict=True)
     else:
         size = spc_file.get_size()
     for prep in new_prep_order:
@@ -580,8 +569,19 @@ def spc_init(spc_file, file_path):
         spc_file.log_dict[b"cosmic_ray_locs"] = eval(spc_file.log_dict[b"cosmic_ray_locs"].replace(b"array", b"np.array"))
         spc_file.log_dict[b"cosmic_ray_removal_params"] = eval(spc_file.log_dict[b"cosmic_ray_removal_params"].replace(b"array", b"np.array"))
         # 古いファイルでCRRしてる時用
-        if ["CRR_master", {"ask":False, "mode":"init"}] not in new_prep_order:
-            new_prep_order.append(["CRR_master", {"ask":False, "mode":"init"}])
+        if ["CRR_master", {"mode":"init"}] not in new_prep_order:
+            new_prep_order.append(["CRR_master", {"mode":"init"}])
+        # バイナリ（古いのは、b"[CRR_p]" 中に cosmic_ray_removal_params={...} がある）をアップデート
+        if b"[CRR_p]" in spc_file.log_other:
+            spc_file.update_binary(
+                file_path, 
+                master_key="CRR", 
+                key_list=["cosmic_ray_locs", "cosmic_ray_removal_params"], 
+                data_list=[spc_file.log_dict[b"cosmic_ray_locs"], spc_file.log_dict[b"cosmic_ray_removal_params"]], 
+                log_dict=True
+                )
+            # key_list=["cosmic_ray_removal_params"] としたいところだが、そうすると log_dict から消えてしまうのでしない。
+            spc_file.delete_from_binary(file_path, master_key="CRR_p", key_list=[], log_dict=True)
     else:
         pass
     # NR
@@ -591,6 +591,21 @@ def spc_init(spc_file, file_path):
     else:
         pass
     spc_file.update_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
+    ###
+    # Point of Interest
+    ###
+    if b"[POI]" in spc_file.log_other:
+        spc_file.log_dict[b"point_of_interest_dict"] = eval(spc_file.log_dict[b"point_of_interest_dict"].decode("utf-8"))
+    else:
+        poi_dict = {}
+        if b"[cfp]" in spc_file.log_other:
+            cfp_x = int(spc_file.log_dict[b"cfp_x"].decode("utf-8"))
+            cfp_y = int(spc_file.log_dict[b"cfp_y"].decode("utf-8"))
+            cfp_z = int(spc_file.log_dict[b"cfp_z"].decode("utf-8"))
+            poi_dict["@cfp"] = [cfp_x, cfp_y]
+            # バイナリから削除
+            spc_file.delete_from_binary(file_path, master_key="cfp", key_list=["cfp_x", "cfp_y", "cfp_z"], log_dict=True)
+        spc_file.write_to_binary(file_path, master_key="POI", key_list=["point_of_interest_dict"], data_list=[poi_dict], log_dict=True)
     return spc_file
 
 class CustomColorButton(QPushButton):
@@ -749,13 +764,73 @@ class ColorSettings(QWidget):
 
 # アンミックスメソッド。中身は基本、spcを踏襲する形で…
 class UnmixingMethod():
-    def __init__(self, procedures, *argsm, **kwargs):
-        self.version = "2.0"
-        self.spc_like_list = []
-        self.file_path_list = []    # spc_like_listとindexごとに対応
-        self.isBackgroundSet = False
-        self.procedures = procedures    # 文字列からなるリスト形式å
-        self.target_range = [None, None]
+    def __init__(self, procedures, convert2nparray=False, *argsm, **kwargs):
+        # self.version = "2.0"
+        # self.spc_like_list = []
+        # self.file_path_list = []    # spc_like_listとindexごとに対応
+        # self.isBackgroundSet = False
+        # self.procedures = procedures    # 文字列からなるリスト形式
+        # self.target_range = [None, None]
+        self.version = "3.0"
+        self.procedures = procedures    # [["func_name in tool_bar_layout", {kwargs_dict}], ...]
+        if convert2nparray:
+            self.procedures2numpy()
+    # unpickle時に呼ばれる
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if state["version"] in ("2.0", "1.0"):
+            procedures = [["hide_all_in_v2", {"var_name":"v2_settings"}]]
+            for spc_like, file_path in zip(state["spc_like_list"], state["file_path_list"]):
+                procedures.append([
+                    "add_spectra_from_obj", 
+                    {
+                        "xData":list(spc_like.x), 
+                        "yData":list(spc_like.sub[0].y), 
+                        "info":{"content":"spectrum", "type":"added", "detail":file_path, "draw":"static", "data":""}, 
+                    }
+                ])
+            if state["isBackgroundSet"]:
+                procedures.append([
+                    "add_spectra_from_POI", 
+                    {
+                        "info":{"content":"spectrum", "type":"POI", "detail":"", "draw":"none", "data":"@cfp"}
+                    }
+                ])
+            procedures.append(["execute_unmixing", {"ask":False, "umx_range":state["target_range"]}])
+            procedures.append(["restore_v2_view", {"var_name":"v2_settings"}])
+            self.procedures = procedures
+            del self.spc_like_list
+            del self.file_path_list
+            del self.isBackgroundSet
+            del self.target_range
+    # json ではarrayしか保存できないので、読み込み時は numpy に直す。
+    def procedures2numpy(self):
+        for procedure, kwargs in self.procedures:
+            for key, val in kwargs.items():
+                # リストかつ中身が数値
+                if isinstance(val, list):
+                    if not isinstance(val[0], str):
+                        kwargs[key] = np.array(val)
+    def save(self, save_path):
+        with open(save_path, 'w') as f:
+            json.dump(self.procedures, f, indent=4)
+def load_umx(file_path):
+    # version 2.0
+    try:
+        with open(file_path, 'rb') as f:
+            UMX = pickle.load(f)
+        # アップデート
+        UMX.save(save_path=file_path)
+        return UMX
+    # version 3.0
+    except:
+        with open(file_path, 'r') as f:
+            procedures = json.loads(f.read())
+        return UnmixingMethod(procedures, convert2nparray=True)
+
+
+
+
     # def add_spectrum(self, x_list, y_list):
     #     # subFileの作成
     #     subLike = SubLike()
@@ -768,8 +843,6 @@ class UnmixingMethod():
     #     self.spc_like_list.append(spcLike)
     # def add_spc_file(self, spc_file):
     #     self.spc_file_list.append(spc_file)
-    
-
 
 # スペクトル描画の際はspcファイル毎にwidgetに渡されるので、その形に似せといたほうが良い
 #  {
@@ -983,9 +1056,9 @@ class SpcLike(spc.File):
         self.logdsks = 0
         self.logspar = b"\x00" * 44
         # log information
-        self.log_content = None
-        self.log_dict = None
-        self.log_other = None
+        self.log_content = []
+        self.log_dict = {}
+        self.log_other = []
         # additional information
         self.spacing = None
         self.xlabel = None
@@ -1020,7 +1093,14 @@ class SpcLike(spc.File):
             "fwtype", 
             "freserv", 
             #
-            "log_content"
+            "log_content", 
+            "log_dict", 
+            "log_other", 
+            "spacing", 
+            "xlabel", 
+            "ylabel", 
+            "zlabel", 
+            "exp_type"
         ]
         for attrib in attrib_list:
             setattr(self, attrib, getattr(spc_file, attrib))
@@ -1146,6 +1226,13 @@ class SpcLike(spc.File):
         # プログレスバー閉じる
         self.pbar_widget.is_close_allowed = True
         self.pbar_widget.close()
+    def save_as_txt(self, save_path):
+        txt = "# spc_data\n"
+        txt += "# x\n{0}\n".format(" ".join(map(str, self.x)))
+        for sub in self.sub:
+            txt += "# sub_1_y\n{0}\n".format(" ".join(map(str, sub.y)))
+        with open(save_path, "w") as f:
+            f.write(txt)
     def mainheader2binary(self):
         # byte 文字列にする
         self.fexper = self.fexper.to_bytes(1, byteorder="little")

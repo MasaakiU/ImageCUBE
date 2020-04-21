@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QProgressBar, 
     QWidget, 
     QCheckBox, 
+    QLineEdit, 
     )
 import numpy as np
 
@@ -73,9 +74,12 @@ class RangeSettingsPopup(QDialog):
         spbx.setMinimum(range[0])
         spbx.setMaximum(range[1])
 
-class CfpSettingsPopup(RangeSettingsPopup):
-    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=False):
+class PoiSettingsPopup(RangeSettingsPopup): # マクロ用
+    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=False, poi_key="poi1"):
         super().__init__(parent, initial_values, labels, title, double)
+        self.is_close_allowed = False
+        self.poi_key = QLineEdit(poi_key)
+        self.spbx_layout.insertRow(0, "POI name", self.poi_key)
         self.isValueChanged = True  # self.parent.map_widget のクロスヘアをクリックした際は、spbx の value も変わるが、その際にクロスヘアが再度updateされるのを防ぐ
         self.parent = parent
         self.spbx_RS1.valueChanged.connect(functools.partial(self.value_changed, xy="x"))
@@ -99,6 +103,10 @@ class CfpSettingsPopup(RangeSettingsPopup):
                 self.spbx_RS1.setValue(map_x)
                 self.spbx_RS2.setValue(map_y)
                 self.isValueChanged = True
+    def set_poi_key(self, text):
+        self.poi_key.setText(text)
+    def get_poi_key(self):
+        return self.poi_key.text()
 
 class RangeSettingsPopupWithCkbx(RangeSettingsPopup):
     def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, ckbx_messages=[]):
@@ -118,11 +126,17 @@ class RangeSettingsPopupWithCkbx(RangeSettingsPopup):
                 self.spbx_RS1.setEnabled(True)
                 self.spbx_RS2.setEnabled(True)
 
+class RangeSettingsPopupWithCmb(RangeSettingsPopup):
+    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, cmb_messages=[]):
+        super().__init__(parent, initial_values, labels, title, double)
+        self.cmb = QComboBox()
+        self.cmb.addItems(cmb_messages)
+        self.spbx_layout.addRow(QLabel(""), self.cmb)
+
 class ValueSettingsPopup(QDialog):
     def __init__(self, parent=None, initial_value=gf.value_settings_popups_init, label="enter value", title="", double=True):
         super().__init__()
         self.setWindowTitle(title)
-        print(double)
         # スピンボックス
         if double:
             self.spbx_RS = QDoubleSpinBox()
@@ -132,8 +146,6 @@ class ValueSettingsPopup(QDialog):
         self.spbx_RS.setMaximum(100000)
         # 初期値
         self.spbx_RS.setValue(initial_value)
-        # self.spbx_size_x.valueChanged.connect(self.size_changed)
-        # self.spbx_size_y.valueChanged.connect(self.size_changed)
         # ボタン
         btnOK = QPushButton("OK")
         btnCancel = QPushButton("cancel")
@@ -154,6 +166,32 @@ class ValueSettingsPopup(QDialog):
     def pressedCancel(self, event):
         self.done(0)
 
+class TextSettingsPopup(QDialog):
+    def __init__(self, parent=None, initial_txt="", label="Enter Text", title="text setting"):
+        super().__init__()
+        self.parent = parent
+        self.setWindowTitle(title)
+        # 要素
+        self.line_edit = QLineEdit(initial_txt)
+        self.btnOK = QPushButton("OK")
+        self.btnCancel = QPushButton("cancel")
+        self.btnOK.clicked.connect(self.pressedOK)
+        self.btnCancel.clicked.connect(self.pressedCancel)
+        # レイアウト
+        btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.btnOK)
+        btn_layout.addWidget(self.btnCancel)
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel(label))
+        layout.addWidget(self.line_edit)
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+    def pressedOK(self, event):
+        self.done(1)
+    def pressedCancel(self, event):
+        self.done(0)
+    def text(self):
+        return self.line_edit.text()
 class ImageCalculator(QDialog):
     def __init__(self, image2D_list, parent=None):
         self.image2D_list = image2D_list
@@ -275,17 +313,6 @@ class ProgressBarWidget(QWidget):
         print("{0}/{1}".format(real_value, self.real_value_max))
         self.setRealValue(real_value)
 
-
-# class BoolMessagePopup(QMessageBox):
-#     def __init__(self, message, title=None)
-#         super().__init__()
-#         self.setWindowTitle(title)
-#         self.setText(message)
-
-#         btnOK = QPushButton("OK")
-#         btnCancel = QPushButton("cancel")
-#         btnOK.clicked.connect(self.pressedOK)
-#         btnCancel.clicked.connect(self.pressedCancel)
 
 
 

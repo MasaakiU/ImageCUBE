@@ -68,6 +68,9 @@ class Output(gf.SpcLike):
         self.set_labels(fxtype=13, fytype=4, fztype=0)
         self.set_x_by_gxy(ffirst=0, flast=5000, fnpts=5000)    # 初期設定
         self.x_ori = np.copy(self.x)
+        #
+        self.log_dict = {}
+        self.log_dict[b"prep_order"] = [['SCL_master', {"mode":None}]]
     def set_x_by_gxy(self, ffirst, flast, fnpts):
         self.dat_fmt = "gx-y"   # no x values are given, but they can be generated
         self.ffirst = ffirst
@@ -84,16 +87,21 @@ class Output(gf.SpcLike):
             sub_like.add_data(y_list=np.zeros_like(self.x), sub_idx=self.fnsub)
             self.fnsub += 1
             self.sub.append(sub_like)
-    def get_col_idxes(self, *names):
-        return [self.col_names.index(name) for name in names]
-    def get_sub_data(self, sub_idx, *args):
-        return self.sub[sub_idx].get_data_list(*self.get_col_idxes(*args))
+    def get_col_idx(self, name):
+        return self.col_names.index(name)
+    def get_sub_activity(self, sub_idx):
+        return self.sub[sub_idx].get_data(self.get_col_idx("Activity"))
+    def get_sub_freq_list(self, sub_idx, scaling):
+        if scaling:
+            return self.sub[sub_idx].get_data(self.get_col_idx("freq(cm**-1)")) * self.scaling
+        else:
+            return self.sub[sub_idx].get_data(self.get_col_idx("freq(cm**-1)"))
     def scl_changed(self, scl=None, wid=None):
         if wid is not None:
             self.g_width = wid
             for sub_idx in range(self.fnsub):
                 y_list = np.zeros_like(self.x_ori)
-                for freq, intn in zip(*self.get_sub_data(sub_idx, "freq(cm**-1)", "Activity")):
+                for freq, intn in zip(self.get_sub_freq_list(sub_idx, scaling=False), self.get_sub_activity(sub_idx)):
                     y_list += self.base_func(self.x_ori, u=freq, s=self.g_width, h=intn)
                 self.sub[sub_idx].y[:] = y_list
         if scl is not None:
@@ -104,8 +112,8 @@ class OutputSub(gf.SubLike):
     def __init__(self):
         super().__init__()
         self.data_set = None
-    def get_data_list(self, *idx_list):
-        return [self.data_set[idx] for idx in idx_list]
+    def get_data(self, idx):
+        return self.data_set[idx]
 
 
 

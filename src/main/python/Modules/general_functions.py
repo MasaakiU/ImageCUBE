@@ -10,6 +10,7 @@ import pickle
 from spc.spc import subFile
 from scipy.optimize import lsq_linear
 from scipy.stats import t   # method を使用する際に必要
+import traceback
 
 import copy
 import glob
@@ -46,8 +47,14 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.6.1"
+ver = "0.6.2"
 print("version: %s"%ver)
+"""
+updates in version 0.6.2
+Bug fixes in opening output files.
+Bug fixes in MapSpectrumTable.
+New function to import custom (extended) spc file.
+"""
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
 default_method_dir = os.path.expanduser('~') + '/Desktop'
@@ -156,8 +163,8 @@ def mk_o_pen():
     return pg.mkPen(settings["o_color"], width=1)
 def mk_a_pen():
     return pg.mkPen(settings["a_color"], width=1)
-def mk_u_pen():
-    return pg.mkPen(settings["u_color"], width=1)
+def mk_u_pen(alpha=255):
+    return pg.mkPen(list(settings["u_color"][:3]) + [alpha], width=1)
 def mk_bg_pen():     # unmixed の condition に統一中
     return pg.mkPen(settings["u_color"], width=1)
 # def mk_t_pen():      # unmixed の condition に統一中
@@ -251,7 +258,9 @@ def remove_between(f, remove_re, flags=0):
     f.seek(0, 0)
     matchedObject_list = list(re.finditer(remove_re, f.read(), flags=flags))
     if len(matchedObject_list) > 1:
-        raise Exception("Cannot change the map_size: multiple [map_size] sequence was found in the file.")
+        raise Exception("Cannot change the map_size: multiple sequences matches with '{0}' was found in the file.".format(remove_re))
+    elif len(matchedObject_list) == 0:
+        return None
     matchedObject = matchedObject_list[0]
     s_point, e_point = matchedObject.span()
     # remove_reでマッチした部分より後半の文字列: あとで付け足す用
@@ -271,6 +280,13 @@ def file_name_processor(file_path):
     file_name_wo_ext = ".".join(file_name.split(".")[:-1])
     dir_path = "/".join(splitted_file_path[:-1])
     return dir_path, file_name, file_name_wo_ext
+def get_save_path(save_path_pre):
+    root, ext = os.path.splitext(save_path_pre)
+    N = 0
+    while os.path.exists(save_path_pre):
+        N += 1
+        save_path_pre = "{0}_{1}{2}".format(root, N, ext)
+    return save_path_pre, N
 
 # y軸を左右に作る時：vb1にvb2を追加する。その時の、vbサイズを同一にする用
 def updateViews(vb1, vb2):
@@ -343,22 +359,38 @@ def into_2_products(n):
 # 与えられた範囲XにおけるYの最大値・最小値を求める
 def get_local_maximum(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
-    return(y_list[local_area].max())
+    return y_list[local_area].max()
 def get_local_minimum(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
-    return(y_list[local_area].min())
+    return y_list[local_area].min()
 def get_local_minmax(x_list, y_list, x_range):
     local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
     local_y = y_list[local_area]
     if len(local_y) > 0:
         return local_y.min(), local_y.max()
     else:
-        return 0, 1
-def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, to_zero):
-    AT = np.vstack((added_regional_y_list, master_x_list, np.ones_like(master_x_list)))
+        return None, None
+def get_local_minmax_multi(xyData_list, x_range):
+    local_y_min_list = []
+    local_y_max_list = []
+    for xData, yData in xyData_list:
+        local_y_min, local_y_max = get_local_minmax(xData, yData, x_range)
+        if local_y_min is None:
+            continue
+        local_y_min_list.append(local_y_min)
+        local_y_max_list.append(local_y_max)
+    return min(local_y_min_list), max(local_y_max_list)
+def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, method):
+    if method == "'n' as 1":
+        return np.array([1,0,0])
+    AT = np.vstack((added_regional_y_list, master_x_list, np.ones_like(master_x_list))) # spectra, slope, intercept
     x = lsq_linear(AT.T, master_y_list).x
-    if not to_zero:
-        x[1:3] = 0
+    if method == "to hori. axis":
+        pass
+    elif method == "to hori. line":
+        x[1] = 0        # slope = 0
+    elif method == "to angl. line":
+        x[[1, 2]] = 0   # slipe = intercept = 0
     return x
 
 ###########################
@@ -439,6 +471,15 @@ def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=T
         # 書き込み
         txt_data = "\r\n".join(["{0}={1}".format(key, data2txt(data)) for key, data in zip(key_list, data_list)])
         with open(file_path,'rb+') as f:
+            # f.seek(-3, 2)
+            # if f.read() != b"\r\n\x00":
+            #     from . import popups
+            #     warning = popups.WarningPopup("Please be careful!")
+            #     warning.exec_()
+            #     pre_txt = "\r\n"
+            # else:
+            #     pre_txt = ""
+            # insert_txt = ("{0}\n[{1}]\r\n{2}\r\n[{1}]\r\n".format(pre_txt, master_key, txt_data)).encode("utf-8")
             insert_txt = ("\n[{0}]\r\n{1}\r\n[{0}]\r\n".format(master_key, txt_data)).encode("utf-8")
             insert(f, insert_txt, -1, 2)
         update_logsizd(file_path, self.flogoff, len(insert_txt))
@@ -451,7 +492,6 @@ def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=T
     if log_dict:
         self.write_to_object(master_key, key_list, data_list)
 def write_to_object(self, master_key, key_list, data_list):
-    print(data_list)
     for key, data in zip(key_list, data_list):
         print(key, data)
         self.log_dict[key.encode()] = data
@@ -472,10 +512,21 @@ def delete_from_binary(self, file_path, master_key, key_list, log_dict=True):
     # ファイルの存在チェック
     if os.path.exists(file_path):
         with open(file_path, 'rb+') as f:
-            # CRR results 除去
             remove_re = "\n\[{0}\]\r\n.+\r\n\[{0}\]\r\n".format(master_key).encode()
             matchedObject = remove_between(f, remove_re, flags=re.DOTALL)
-            # logsizd を update
+            # log blockの 最初のモノは、改行が含まれるために検出されない可能性がある。
+            if matchedObject is None:
+                # 最初で最後の key の場合
+                # datablock_binary[target]\r\n....\r\n[target]\r\n\x00
+                # > datablock_binary\x00
+                # 最初の key の場合
+                # datablock_binary[target]\r\n....\r\n[target]\r\n\n[CRR]\r\n...
+                # > datablock_binary\n[CRR]\r\n...
+                from . import popups
+                warning_popup = popups.WarningPopup("Be sure to check that the raw .spc file is updated as you expected by opening with text editor!")
+                warning_popup.exec_()
+                remove_re = "\[{0}\]\r\n.+\r\n\[{0}\]\r\n".format(master_key).encode()
+                matchedObject = remove_between(f, remove_re, flags=re.DOTALL)
             update_logsizd(file_path, flogoff=None, added_length= -len(matchedObject.group(0)))
     else:
         from . import popups
@@ -530,6 +581,21 @@ def fmNumPy_2dArray(self, numpy2dArray):
 def spc_transplant(acceptor_spc, donor_spc):
     for sub_idx in range(donor_spc.fnsub):
         acceptor_spc.sub[sub_idx].y[:] = donor_spc.sub[sub_idx].y
+def remove_all_prep(self, except_list=[]):
+    for func_name, kwargs in self.log_dict[b"prep_order"]:
+        if func_name in except_list:
+            continue
+        if func_name == "set_size":
+            self.delete_from_object(master_key="map_size", key_list=["map_x", "map_y", "map_z"])
+        elif func_name == "CRR_master":
+            self.delete_from_object(master_key="CRR", key_list=["cosmic_ray_locs", "cosmic_ray_removal_params"])
+        elif func_name == "NR_master":
+            self.delete_from_object(master_key="NR", key_list=["noise_reduction_params"])
+        elif func_name == "CustomBtn_master":
+            pass
+        else:
+            print(func_name)
+            raise Exception("unknown preprocesses")
 def spc_init(spc_file, file_path):
     ###
     # 古いバージョンで開いたspcファイルは、log blockのサイズ (self.logsizd) 情報がupdateされていないものがある。それの対処。
@@ -537,9 +603,18 @@ def spc_init(spc_file, file_path):
     # を読んでるから、長く読んでしまっていた。正しくは下記。（オリジナルの spc.py のライブラリを編集して使うこと）
         # flogoff + logtxto ~ flogoff + logtxto + logsizd - logtxto
     # logファイルは幸いなことに一番最後に書かれてる（プラスして\x00が1文字入ってはいるが）:一致してるかを見る
-    update = legacy_function_to_correct_logsizd(file_path, spc_file.flogoff, spc_file.length)
+    if spc_file.length is not None:
+        update = legacy_function_to_correct_logsizd(file_path, spc_file.flogoff, spc_file.length)
+    else:
+        # spc_file.length == None の場合は、特殊 spc ファイル（.out, .cspc など）
+        update = False
     if update:
-        spc_file = open_spc_spcl(file_path)
+        spc_file, traceback = open_spc_spcl(file_path)
+        if traceback is not None:
+            from . import popups
+            warning_popup = popups.WarningPopup("unable to open '{0}'.".format(file_path))
+            warning_popup.exec_()
+            return
     ###
     # Preprocesses の前処理
     ###
@@ -548,8 +623,9 @@ def spc_init(spc_file, file_path):
         spc_file.write_to_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
     else:
         new_prep_order = eval(spc_file.log_dict[b"prep_order"].decode("utf-8"))
+        spc_file.log_dict[b"prep_order"] = new_prep_order   # とりあえず設定しておき、下記操作で new_prep_order が更新されたら、spc_file object も更新する。
     # サイズ
-    if b"[map_size]" not in spc_file.log_other:
+    if (b"[map_size]" not in spc_file.log_other) & (spc_file.fnsub > 1):
         product_x_list, product_y_list = into_2_products(spc_file.fnsub)
         middle_idx = int(len(product_x_list) / 2)
         x = product_x_list[middle_idx]
@@ -557,13 +633,12 @@ def spc_init(spc_file, file_path):
         z = 1
         size = [x, y, z]
         spc_file.write_to_binary(file_path, master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=size, log_dict=True)
-    else:
-        size = spc_file.get_size()
     for prep in new_prep_order:
         if prep[0] == "set_size":
             break
     else:
-        new_prep_order.append(["set_size", {"size":None, "mode":"init"}])
+        if spc_file.fnsub > 1:
+            new_prep_order.append(["set_size", {"size":None, "mode":"init"}])
     # CRR
     if b'[CRR]' in spc_file.log_other:
         spc_file.log_dict[b"cosmic_ray_locs"] = eval(spc_file.log_dict[b"cosmic_ray_locs"].replace(b"array", b"np.array"))
@@ -590,13 +665,15 @@ def spc_init(spc_file, file_path):
         # 古いファイルでNRは使用していいない（記録されない仕様）
     else:
         pass
-    spc_file.update_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
+    if spc_file.length is not None:
+        if new_prep_order != spc_file.log_dict[b"prep_order"]:
+            spc_file.update_binary(file_path, master_key="PreP", key_list=["prep_order"], data_list=[new_prep_order], log_dict=True)
     ###
     # Point of Interest
     ###
     if b"[POI]" in spc_file.log_other:
         spc_file.log_dict[b"point_of_interest_dict"] = eval(spc_file.log_dict[b"point_of_interest_dict"].decode("utf-8"))
-    else:
+    elif spc_file.fnsub > 1:
         poi_dict = {}
         if b"[cfp]" in spc_file.log_other:
             cfp_x = int(spc_file.log_dict[b"cfp_x"].decode("utf-8"))
@@ -687,7 +764,6 @@ class PathSettings(QWidget):
         btn_set_last_opened_dir.clicked.connect(self.set_last_opened_dir)
         btn_set_method_dir.clicked.connect(self.set_method_dir)
         btn_set_plugin_dir.clicked.connect(self.set_plugin_dir)
-
     def set_last_opened_dir(self, event=None):
         dir_path = QFileDialog.getExistingDirectory(self, 'select folder', settings["last opened dir"])
         settings["last opened dir"] = dir_path
@@ -793,7 +869,7 @@ class UnmixingMethod():
                 procedures.append([
                     "add_spectra_from_POI", 
                     {
-                        "info":{"content":"spectrum", "type":"POI", "detail":"", "draw":"none", "data":"@cfp"}
+                        "info":{"content":"spectrum", "type":"POI", "detail":"@cfp", "draw":"none", "data":""}
                     }
                 ])
             procedures.append(["execute_unmixing", {"ask":False, "umx_range":state["target_range"]}])
@@ -848,14 +924,14 @@ def load_umx(file_path):
 #  {
     # 'length': 5573, 
     # 'ftflg': b'\x00', 
-    # 'fversn': b'K', 
-    # 'fexper': 11, 
-    # 'fexp': 128, 
+    # 'fversn': b'K',   # \x4B = new format
+    # 'fexper': 11,     # \x0B = Raman spectrum
+    # 'fexp': 128,      # \x80 = as floating point
     # 'fnpts': 1015, 
     # 'ffirst': 4708.185546875, 
     # 'flast': 100.810546875, 
     # 'fnsub': 1, 
-    # 'fxtype': 13, 
+    # 'fxtype': 13,     # Raman Shift (cm-1)
     # 'fytype': 4, 
     # 'fztype': 0, 
     # 'fpost': b'\x00', 
@@ -998,37 +1074,37 @@ class SpcLike(spc.File):
     def __init__(self):
         # main header
         self.length = None
-        self.ftflg = None
-        self.fversn = b'\x4b'   # NEW FORMAT (LSB)
-        self.fexper = None
-        self.fexp = None
+        self.ftflg = b"\x00"# File type flag: 0 = Y data is stored in 16-bit precision (instead of 32-bit)
+        self.fversn = b"\x4B"   # \x4B = new format
+        self.fexper = 11    # \x4B = new format
+        self.fexp = 128     # \x80 = as floating point
         self.fnpts = None
         self.ffirst = None
         self.flast = None
         self.fnsub = 0
-        self.fxtype = None
-        self.fytype = None
-        self.fztype = None
-        self.fpost = None
-        self.fdate = None
-        self.fres = None
-        self.fsource = None
-        self.fpeakpt = None
-        self.fspare = None
-        self.fcmnt = None
-        self.fcatxt = None
-        self.flogoff = 512
-        self.fmods = None
-        self.fprocs = None
-        self.flevel = None
-        self.fsampin = None
-        self.ffactor = None
-        self.fmethod = None
-        self.fzinc = None
-        self.fwplanes = None
-        self.fwinc = None
-        self.fwtype = None
-        self.freserv = None
+        self.fxtype = 0   # Arbitrary unit for x   # b"\x0D" : Raman Shift (cm-1)
+        self.fytype = 0   # Arbitrary unit for y   # b"\x04" : Seconds
+        self.fztype = 0   # Arbitrary unit for z
+        self.fpost = b"\x00"    # Posting disposition
+        self.fdate = datetime2int()
+        self.fres = b"\x00" * 9     # resolution description text
+        self.fsource = b"\x00" * 9  # source instrunment text
+        self.fpeakpt = 0  # Peak point number for interferograms
+        self.fspare = b"\x00" * 32   # spare: len = 32
+        self.fcmnt = "created by ImageCUBE" + " " * (130 - len("created by ImageCUBE")) # comment: len = 130
+        self.fcatxt = b"\x00" * 30   # X, Y, and Z custom axis strings (combined): len = 30
+        self.flogoff = 512  # byte offset to log block
+        self.fmods = 0   # File modification flag
+        self.fprocs = b"\x00"   # Processing code (see GRAMSDDE.H)
+        self.flevel = b"\x00"   # Calibration level + 1
+        self.fsampin = 0    # Sub-method sample injection number
+        self.ffactor = 0    # Floating data multiplier concentration factor
+        self.fmethod = b"\x00" * 48 # method file: len = 48
+        self.fzinc = 0      # Z subfile increment for even Z Multifiles
+        self.fwplanes = 0   # Number of W planes
+        self.fwinc = 0      # W plane increment
+        self.fwtype = b"\x00"     # W axis units code
+        self.freserv = b"\x00" * 187 # Reserved
         #
         self.tsprec = None
         self.tcgram = None
@@ -1075,6 +1151,7 @@ class SpcLike(spc.File):
             "fytype", 
             "fztype", 
             "fpost", 
+            # "fdate", 
             "fres", 
             "fsource", 
             "fpeakpt", 
@@ -1103,8 +1180,7 @@ class SpcLike(spc.File):
             "exp_type"
         ]
         for attrib in attrib_list:
-            setattr(self, attrib, getattr(spc_file, attrib))
-        self.fdate = datetime2decimal(datetime.datetime.now())
+            setattr(self, attrib, copy.deepcopy(getattr(spc_file, attrib)))
     def set_labels(self, fxtype=0, fytype=0, fztype=0):
         self.fxtype, self.fytype, self.fztype = fxtype, fytype, fztype
         super().set_labels()
@@ -1214,7 +1290,7 @@ class SpcLike(spc.File):
                 self.pbar_widget.addValue(1)
                 QCoreApplication.processEvents()
         datablock_binary = struct.pack(sub_str_all, *sub_data_all)
-        self.flogoff = len(datablock_binary) + 512  # main header の分
+        self.flogoff = 512 + len(datablock_binary)   # main header の分が512
         # log block
         logblock_binary = self.logblock2binary()
         # main header block (512)
@@ -1245,7 +1321,7 @@ class SpcLike(spc.File):
             "ftflg", 
             "fversn", 
             "fexper", 
-            "fexp", 
+            "fexp",     ###
             "fnpts",    ###
             "ffirst",   ###
             "flast",    ###
@@ -1259,7 +1335,7 @@ class SpcLike(spc.File):
             "fsource", 
             "fpeakpt", 
             "fspare", 
-            "fcmnt", 
+            "fcmnt",    ###
             "fcatxt", 
             "flogoff",  ###
             "fmods", 
@@ -1297,17 +1373,17 @@ class SpcLike(spc.File):
         return loghead_binary + logcontent_binary
 class SubLike(subFile):
     def __init__(self, *argsm, **kwargs):
-        self.subflgs = None
+        self.subflgs = 0        #  ???
         self.subexp = 128       #  Floating y-values
         self.subindx = None     ###
-        self.subtime = None
-        self.subnext = None
-        self.subnois = None
+        self.subtime = 0.0      #  ???
+        self.subnext = 0.0      #  ???
+        self.subnois = 0.0      #  ???
         self.subnpts = None     ###
-        self.subscan = None
-        self.subwlevel = None
-        self.subresv = None
-        self.y = None
+        self.subscan = 1        ##
+        self.subwlevel = 0.0    #  ???
+        self.subresv = b'\x00\x00\x00\x00'  #  reserved
+        self.y = None           ###
     def init_fmt(self, sub):
         attrib_list = [
             "subflgs", 
@@ -1319,7 +1395,7 @@ class SubLike(subFile):
             "subresv"
         ]
         for attrib in attrib_list:
-            setattr(self, attrib, getattr(sub, attrib))
+            setattr(self, attrib, copy.deepcopy(getattr(sub, attrib)))
     def add_data(self, y_list, sub_idx):
         self.y = y_list
         self.subindx = sub_idx
@@ -1343,14 +1419,25 @@ class SubLike(subFile):
         subattrib_data = [getattr(self, attrib) for attrib in subattrib_list]
         return subhead_str + "f"*self.subnpts, subattrib_data + list(self.y)
 def open_spc_spcl(file_path):
-    # spcファイルの場合
-    if file_path.endswith(".spc"):
-        spc_file = spc.File(file_path)
-    # spclファイル（自作漬物ファイル）の場合
-    elif file_path.endswith(".spcl"):
-        with open(file_path, 'rb') as f:
-            spc_file = pickle.load(f)
-    return spc_file
+    try:
+        # spcファイルの場合
+        if file_path.endswith(".spc"):
+            spc_file = spc.File(file_path)
+        # spclファイル（自作漬物ファイル）の場合
+        elif file_path.endswith(".spcl"):
+            with open(file_path, 'rb') as f:
+                spc_file = pickle.load(f)
+        elif file_path.endswith(".out"):
+            from . import output_core as oc
+            spc_file = oc.open_output_file(file_path)
+        elif file_path.endswith(".cspc"):
+            from . import cspc_core as cspc
+            spc_file = cspc.open_cspc_file(file_path)
+        else:
+            raise Exception("unknown extension")
+        return spc_file, None
+    except:
+        return None, traceback.format_exc()
 
 def legacy_function_to_correct_logsizd(file_path, flogoff, length):
     with open(file_path, "rb+") as f:
@@ -1378,18 +1465,54 @@ def spc2ndarray(spc_file):
         data_set[sub_idx] = spc_file.sub[sub_idx].y
     return data_set
 
-def datetime2decimal(dt_now):
-    year = dt_now.year
-    month = dt_now.month
-    day = dt_now.day
-    hour = dt_now.hour
-    minute = dt_now.minute
-    d = (year << 20) \
-         + (month << 16) \
-         + (day << 11) \
-         + (hour << 6) \
-         + minute 
+# def datetime2bite(dt_now=None):
+#     if dt_now is None:
+#         dt_now = datetime.datetime.now()
+#     d = (dt_now.year << 20) \
+#       + (dt_now.month << 16) \
+#       + (dt_now.day << 11) \
+#       + (dt_now.hour << 6) \
+#       + dt_now.minute
+#     return struct.pack("<i", d)
+# def bite2datetime(bite_array):
+#     concatenated_b = format(struct.unpack("<i", bite_array)[0], "032b")
+#     ye = int(concatenated_b[:12], 2)
+#     mo = int(concatenated_b[12:16], 2)
+#     da = int(concatenated_b[16:21], 2)
+#     ho = int(concatenated_b[21:26], 2)
+#     mi = int(concatenated_b[26:32], 2)
+#     se = int(concatenated_b[26:32], 2)
+#     return datetime.datetime(ye, mo, da, ho, mi, se)
+def datetime2bite(dt_now=None):
+    d = datetime2int(dt_now=dt_now)
+    return struct.pack("<i", d)
+def datetime2int(dt_now=None):
+    if dt_now is None:
+        dt_now = datetime.datetime.now()
+    # ye m d h m s
+    # 7  4 5 5 6 5
+    dt_now -= datetime.timedelta(hours=9)   # 年を引くと、うるう年とかでややこしいので、引き算しない。
+    d = (dt_now.year - 1980 << 25) \
+      + (dt_now.month - 1 << 21) \
+      + (dt_now.day << 16) \
+      + (dt_now.hour << 11) \
+      + (dt_now.minute << 5) \
+      + int(dt_now.second / 2)
     return d
+def bite2datetime(bite_array=None):
+    if bite_array is None:
+        unpacked_int = struct.unpack("<i", bite_array)[0]
+    return int2datetime(unpacked_int=unpacked_int)
+def int2datetime(unpacked_int):
+    ye = (unpacked_int >> 25) + 1980
+    mo = (unpacked_int >> 21) % (2**4) + 1
+    da = (unpacked_int >> 16) % (2**5)
+    ho = (unpacked_int >> 11) % (2**5)
+    mi = (unpacked_int >> 5) % (2**6)
+    se = unpacked_int % (2**5) * 2
+    dt = datetime.datetime(ye, mo, da, ho, mi, se)
+    return dt + datetime.timedelta(hours=9)
+
 
 
 

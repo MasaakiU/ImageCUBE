@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QWidget, 
     QCheckBox, 
     QLineEdit, 
+    QGridLayout, 
     )
 import numpy as np
 
@@ -38,14 +39,10 @@ class RangeSettingsPopup(QDialog):
         else:
             self.spbx_RS1 = QSpinBox()
             self.spbx_RS2 = QSpinBox()
-        self.spbx_RS1.setMinimum(-65535)
-        self.spbx_RS1.setMaximum(65535)
-        self.spbx_RS2.setMinimum(-65535)
-        self.spbx_RS2.setMaximum(65535)
+        self.set_spinbox_range([-65535, 65535], RS_type="RS1")
+        self.set_spinbox_range([-65535, 65535], RS_type="RS2")
         # 初期値
         self.setValues(initial_values)
-        # self.spbx_size_x.valueChanged.connect(self.size_changed)
-        # self.spbx_size_y.valueChanged.connect(self.size_changed)
         # ボタン
         self.btnOK = QPushButton("OK")
         self.btnCancel = QPushButton("cancel")
@@ -55,12 +52,13 @@ class RangeSettingsPopup(QDialog):
         self.spbx_layout = QFormLayout()
         self.spbx_layout.addRow(QLabel(labels[0]), self.spbx_RS1)
         self.spbx_layout.addRow(QLabel(labels[1]), self.spbx_RS2)
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.btnOK)
-        btn_layout.addWidget(self.btnCancel)
+        self.btn_layout = QHBoxLayout()
+        self.btn_layout.addStretch(1)
+        self.btn_layout.addWidget(self.btnOK)
+        self.btn_layout.addWidget(self.btnCancel)
         layout = QVBoxLayout()
         layout.addLayout(self.spbx_layout)
-        layout.addLayout(btn_layout)
+        layout.addLayout(self.btn_layout)
         self.setLayout(layout)
     def setValues(self, values):
         self.spbx_RS1.setValue(values[0])
@@ -84,6 +82,8 @@ class PoiSettingsPopup(RangeSettingsPopup): # マクロ用
         self.parent = parent
         self.spbx_RS1.valueChanged.connect(functools.partial(self.value_changed, xy="x"))
         self.spbx_RS2.valueChanged.connect(functools.partial(self.value_changed, xy="y"))
+        self.btnSkip = QPushButton("skip")
+        self.btn_layout.addWidget(self.btnSkip)
     def value_changed(self, event, xy):
         if self.isValueChanged:
             if xy == "x":
@@ -127,11 +127,115 @@ class RangeSettingsPopupWithCkbx(RangeSettingsPopup):
                 self.spbx_RS2.setEnabled(True)
 
 class RangeSettingsPopupWithCmb(RangeSettingsPopup):
-    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, cmb_messages=[]):
+    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left (cm-1)", "right (cm-1)"), title="range setting", double=True, cmb_title="", cmb_messages=[]):
         super().__init__(parent, initial_values, labels, title, double)
         self.cmb = QComboBox()
         self.cmb.addItems(cmb_messages)
-        self.spbx_layout.addRow(QLabel(""), self.cmb)
+        self.spbx_layout.addRow(QLabel(cmb_title))
+        self.spbx_layout.addRow(QLabel("option"), self.cmb)
+
+class MultipleRangeSettingsPopup(QDialog):
+    def __init__(self, parent=None, initial_values=(1900, 2400), labels=("left", "right"), title="range setting", double=True, cmb_title=None, cmb_messages=[]):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
+        self.parent = parent
+        self.double = double
+        self.initial_values = initial_values
+        self.setWindowTitle(title)
+        # スピンボックス
+        self.spbx_list1 = []
+        self.spbx_list2 = []
+        # コンボボックス
+        self.cmb = QComboBox()
+        self.cmb.addItems(cmb_messages)
+        # ボタン
+        self.enabled_stylesheet = \
+            """
+            QPushButton{border:1px solid gray; border-radius: 7px; background-color:light gray; color:black}
+            QPushButton:hover:!pressed{border:1px solid gray; background-color:gray; color:black}
+            QPushButton:hover{border:1px solid gray; background-color:rgb(255,150,150); color:black}
+            """
+        self.disabled_stylesheet = \
+            """
+            QPushButton{border:1px rgba(255, 255, 255, 0); border-radius: 7px; background-color:rgba(255, 255, 255, 0); color:rgba(255, 255, 255, 0)}
+            """
+        btnAdd = QPushButton("+")
+        btnAdd.setFixedSize(15, 15)
+        btnAdd.setStyleSheet(self.enabled_stylesheet)
+        self.btnOK = QPushButton("OK")
+        self.btnCancel = QPushButton("cancel")
+        self.btnOK.clicked.connect(self.pressedOK)
+        self.btnCancel.clicked.connect(self.pressedCancel)
+        # レイアウト
+        self.spbx_layout = QGridLayout()
+        self.spbx_layout.addWidget(QLabel(labels[0]), 0, 1)
+        self.spbx_layout.addWidget(QLabel(labels[1]), 0, 2)
+        self.btn_layout1 = QHBoxLayout()
+        self.btn_layout1.addStretch(1)
+        self.btn_layout1.addWidget(btnAdd)
+        self.btn_layout2 = QHBoxLayout()
+        self.btn_layout2.addStretch(1)
+        self.btn_layout2.addWidget(self.btnOK)
+        self.btn_layout2.addWidget(self.btnCancel)
+        cmb_layout = QHBoxLayout()
+        cmb_layout.addWidget(QLabel("option"))
+        cmb_layout.addWidget(self.cmb)
+        layout = QVBoxLayout()
+        layout.addLayout(self.spbx_layout)
+        layout.addLayout(self.btn_layout1)
+        if cmb_title is not None:
+            layout.addWidget(QLabel(cmb_title))
+        layout.addLayout(cmb_layout)
+        layout.addLayout(self.btn_layout2)
+        self.setLayout(layout)
+        # 初期値
+        self.spbx_range1 = (-65535, 65535)
+        self.spbx_range2 = (-65535, 65535)
+        self.add_Row()
+        self.setValuesForAll(self.initial_values)
+        # イベントコネクト
+        btnAdd.clicked.connect(self.add_Row)
+    def add_Row(self):
+        # スピンボックス
+        if self.double:
+            spbx_RS1 = QDoubleSpinBox()
+            spbx_RS2 = QDoubleSpinBox()
+        else:
+            spbx_RS1 = QSpinBox()
+            spbx_RS2 = QSpinBox()
+        # 削除ボタン
+        btn_delete = QPushButton("×")
+        btn_delete.setFixedSize(15, 15)
+        # 配置
+        N_row = self.spbx_layout.rowCount()
+        self.spbx_layout.addWidget(QLabel("range {0}".format(N_row)), N_row, 0)
+        self.spbx_layout.addWidget(spbx_RS1, N_row, 1)
+        self.spbx_layout.addWidget(spbx_RS2, N_row, 2)
+        self.spbx_layout.addWidget(btn_delete, N_row, 3)
+        if N_row > 1:
+            btn_delete.setStyleSheet(self.enabled_stylesheet)
+        else:
+            btn_delete.setStyleSheet(self.disabled_stylesheet)
+            btn_delete.setDisabled(True)
+        # 最大値、最小値設定
+        self.spbx_list1.append(spbx_RS1)
+        self.spbx_list2.append(spbx_RS2)
+        self.set_spinbox_ranges()
+        spbx_RS1.setValue(self.initial_values[0])
+        spbx_RS2.setValue(self.initial_values[1])
+    def setValuesForAll(self, values):
+        for spbx1, spbx2 in zip(self.spbx_list1, self.spbx_list2):
+            spbx1.setValue(values[0])
+            spbx2.setValue(values[1])
+    def pressedOK(self, event):
+        self.done(1)
+    def pressedCancel(self, event):
+        self.done(0)
+    def set_spinbox_ranges(self):
+        for spbx1, spbx2 in zip(self.spbx_list1, self.spbx_list2):
+            spbx1.setRange(*self.spbx_range1)
+            spbx2.setRange(*self.spbx_range2)
+
 
 class ValueSettingsPopup(QDialog):
     def __init__(self, parent=None, initial_value=gf.value_settings_popups_init, label="enter value", title="", double=True):
@@ -177,12 +281,14 @@ class TextSettingsPopup(QDialog):
         self.btnCancel = QPushButton("cancel")
         self.btnOK.clicked.connect(self.pressedOK)
         self.btnCancel.clicked.connect(self.pressedCancel)
+        label = QLabel(label)
+        label.setOpenExternalLinks(True)
         # レイアウト
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.btnOK)
         btn_layout.addWidget(self.btnCancel)
         layout = QVBoxLayout()
-        layout.addWidget(QLabel(label))
+        layout.addWidget(label)
         layout.addWidget(self.line_edit)
         layout.addLayout(btn_layout)
         self.setLayout(layout)
@@ -192,6 +298,7 @@ class TextSettingsPopup(QDialog):
         self.done(0)
     def text(self):
         return self.line_edit.text()
+
 class ImageCalculator(QDialog):
     def __init__(self, image2D_list, parent=None):
         self.image2D_list = image2D_list
@@ -265,25 +372,68 @@ class WarningPopup(QMessageBox):
         p.setColor(self.backgroundRole(), Qt.white)
         self.setPalette(p)
 
+class MessageDialog(QDialog):
+    def __init__(self, parent=None, message="", title="", p_type="Normal", enable_event_connect=True):
+        super().__init__()
+        self.parent = parent
+        self.setWindowTitle(title)
+        label = QLabel(message)
+        label.setOpenExternalLinks(True)
+        self.btnOk = QPushButton("OK")
+        if p_type == "Normal":
+            btn_list = [self.btnOk]
+            btn_name_list = ["btnOk"]
+        elif p_type == "Cancel":
+            self.btnCancel = QPushButton("Cancel")
+            btn_list = [self.btnCancel, self.btnOk]
+            btn_name_list = ["btnCancel", "btnOk"]
+        else:
+            raise Exception("unknown p_type: {0}".format(p_type))
+        if enable_event_connect:
+            for btn_name in btn_name_list:
+                btn = getattr(self, btn_name)
+                func = getattr(self, "{0}_clicked".format(btn_name))
+                btn.clicked.connect(func)
+        self.btnOk.setDefault(True)
+        # レイアウト
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+        for btn in btn_list:
+            btn_layout.addWidget(btn)
+        layout = QVBoxLayout()
+        layout.addWidget(label)
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+    def btnOk_clicked(self, event):
+        self.done(1)
+    def btnCancel_clicked(self, event):
+        self.done(0)
+
 class ProgressBarWidget(QWidget):
     signal = pyqtSignal(int)
-    def __init__(self, parent, message="", real_value_max=100):
+    def __init__(self, parent, message="", real_value_max=100, message2="", N_iter=None, segment=97):
         super().__init__()
-        self.setFixedSize(300, 100)
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         # シグナル
         self.real_value_max = real_value_max
         self.signal.connect(self.on_signal_emit)
         # 実質
         self.pbar = QProgressBar(self)
-        self.pbar.setGeometry(30, 40, 200, 25)
         self.pbar.setValue(0)
-        self.label = QLabel()
-        self.setLabel(message)
+        self.label = QLabel(message)
+        self.label2 = QLabel(message2)
+        if N_iter is not None:
+            self.segment_list = self.get_segment_list(N_iter, segment)
+        else:
+            self.segment_list = None
         # レイアウト
+        label2_layout = QHBoxLayout()
+        label2_layout.setAlignment(Qt.AlignRight)
+        label2_layout.addWidget(self.label2)
         layout = QVBoxLayout()
         layout.addWidget(self.label)
-        layout.addWidget(QLabel(" "))
+        layout.addWidget(self.pbar)
+        layout.addLayout(label2_layout)
         layout.addStretch(1)
         self.setLayout(layout)
         self.is_close_allowed = False
@@ -292,11 +442,17 @@ class ProgressBarWidget(QWidget):
             return np.arange(n)[::int(n/segment)]
         else:
             return np.arange(n)[::1]
+    def processSegment(self, idx):
+        if idx in self.segment_list:
+            self.addValue(1)
     def show(self):
         super().show()
         QCoreApplication.processEvents()
     def setLabel(self, text):
         self.label.setText(text)
+    def setLabel2(self, text):
+        self.label2.setText(text)
+        QCoreApplication.processEvents()
     def setRealValue(self, real_value):
         self.pbar.setValue(100 * real_value / self.real_value_max)
         QCoreApplication.processEvents()
@@ -304,6 +460,9 @@ class ProgressBarWidget(QWidget):
         cur_value = self.pbar.value()
         self.pbar.setValue(cur_value + value)
         QCoreApplication.processEvents()
+    def master_close(self):
+        self.is_close_allowed = True
+        self.close()
     def closeEvent(self, event=None):
         if self.is_close_allowed:
             event.accept()

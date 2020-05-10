@@ -6,26 +6,28 @@ import numpy as np
 import re
 
 from PyQt5.QtWidgets import (
+    QApplication, 
     QAbstractButton, 
     QSpacerItem, 
     QFrame, 
     QVBoxLayout, 
+    QHBoxLayout, 
     QWidget, 
     QLabel, 
     QPushButton, 
     QLineEdit, 
-    QHBoxLayout, 
     QFileDialog, 
     QAction, 
+    QSizePolicy, 
+    QStyle, 
+    QStyleOption, 
+    QMenu, 
     )
 from PyQt5.QtGui import (
     QPainter, 
-    QStyleOption, 
-    QStyle, 
     QIcon, 
     QPixmap, 
-    QMenu, 
-    QSizePolicy, 
+    QMouseEvent, 
     )
 from PyQt5.QtCore import (
     Qt, 
@@ -88,6 +90,91 @@ class CustomPicButton(QAbstractButton):
     #     if event.button() == Qt.RightButton :
     #         self.rightClick.emit()
     #         # print ('right click')
+
+class CustomMenuButton(QPushButton):
+    def __init__(self, text="", icon_path=None, divide=True, *args, **kwargs):
+        super().__init__(text, *args, **kwargs)
+        self.change_event_from_outside = True
+        self.setStyleSheet("""QPushButton:enabled{color:black; text-align:left}
+            :enabled:pressed{color:white; text-align:left}
+            :enabled:pressed:!hover{color:black; text-align:left}
+            :disabled{color:light gray; text-align:left}"""
+        )
+        self.divide = divide
+        self.menu = QMenu()
+        self.menu.addAction("        ", lambda *args: None)     # pseudo menu
+        self.clicked_near_arrow = False
+        # set icon and label
+        self.label_icon = QLabel(" ˇ ")# ∨▾
+        self.label_icon.setAttribute(Qt.WA_TranslucentBackground)
+        self.label_icon.setAttribute(Qt.WA_TransparentForMouseEvents)
+        icon_size = QSize(19, 19)
+        self.pixmap_gray = QIcon(os.path.join(icon_path, "line_gray.png")).pixmap(icon_size)
+        self.pixmap_white = QIcon(os.path.join(icon_path, "line_white.png")).pixmap(icon_size)
+        self.line_icon = QLabel()
+        self.line_icon.setAttribute(Qt.WA_TranslucentBackground)
+        self.line_icon.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.line_icon.setPixmap(self.pixmap_gray)
+        # layout
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 6, 3)
+        lay.setSpacing(0)
+        lay.addStretch(1)
+        if self.divide:
+            lay.addWidget(self.line_icon)
+        lay.addWidget(self.label_icon)
+    def set_icon(self, pressed):
+        if pressed:
+            color = "white"
+            self.line_icon.setPixmap(self.pixmap_white)
+        else:
+            color = "black"
+            self.line_icon.setPixmap(self.pixmap_gray)
+        self.label_icon.setStyleSheet("""
+            QLabel:enabled{color:""" + color + """; text-align:left}
+            :disabled{color:light gray; text-align:left}""")
+    def mousePressEvent(self, event):
+        if event.type() == QEvent.MouseButtonPress:
+            self.set_icon(pressed=True)
+            # figure out press location
+            topRight = self.rect().topRight()
+            bottomRight = self.rect().bottomRight()
+            # get the rect from QStyle instead of hardcode numbers here
+            arrowTopLeft = QPoint(topRight.x()-19, topRight.y())
+            arrowRect = QRect(arrowTopLeft, bottomRight)
+            if arrowRect.contains(event.pos()) | (not self.divide):
+                self.clicked_near_arrow = True
+                self.blockSignals(True)
+                QPushButton.mousePressEvent(self, event)
+                self.blockSignals(False)
+                self.open_context_menu()
+            else:
+                self.clicked_near_arrow = False
+                QPushButton.mousePressEvent(self, event)
+    def mouseMoveEvent(self, event):
+        if self.rect().contains(event.pos()):
+            self.set_icon(pressed=True)
+        else:
+            self.set_icon(pressed=False)
+        QPushButton.mouseMoveEvent(self, event)
+    def mouseReleaseEvent(self, event):
+        self.set_icon(pressed=False)
+        if self.clicked_near_arrow:
+            self.blockSignals(True)
+            QPushButton.mouseReleaseEvent(self, event)
+            self.blockSignals(False)
+        else:
+            QPushButton.mouseReleaseEvent(self, event)
+    def setMenu(self, menu):
+        self.menu = menu
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.open_context_menu)
+    # ContextMenueのlauncher
+    def open_context_menu(self, point=None):
+        point = QPoint(7, 23)
+        self.menu.exec_(self.mapToGlobal(point))
+        event = QMouseEvent(QEvent.MouseButtonRelease, QPoint(10, 10), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+        self.mouseReleaseEvent(event)
 
 class CustomAction(QAction):
     def __init__(self, icon_path, icon_name, name, parent):
@@ -445,6 +532,22 @@ class CustomFillBetweenItems():
         self.curve1.setVisible(arg)
         self.curve2.setVisible(arg)
         self.fbtwn_item.setVisible(arg)
+
+class PlotDataItems(pg.PlotDataItem):
+    def __init__(self, xy_data_set=None, **kwargs):    # [(xData1,yData1),(xData2,yData2),(xData3,yData3)...]
+        super().__init__()
+        if xy_data_set is not None:
+            self.setData_set(xy_data_set, **kwargs)
+    def setData_set(self, xy_data_set, **kwargs):
+        x_data_list, y_data_list = zip(*xy_data_set)
+        x_data = np.hstack(x_data_list)
+        y_data = np.hstack(y_data_list)
+        connect = np.ones_like(x_data, dtype=int)
+        loc = 0
+        for i in x_data_list:
+            loc += len(i)
+            connect[loc - 1] = 0
+        self.setData(x_data, y_data, connect=connect, **kwargs)
 
 # class CustomPathSetLayout(QHBoxLayout):
 #     def __init__(self, initial_text=""):

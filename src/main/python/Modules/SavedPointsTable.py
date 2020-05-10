@@ -91,7 +91,7 @@ class PointsOfInterestManager(QWidget):
         return content_widget
     def del_poi(self):
         if self.poi_layout.current_focused_idx is not None:
-            cur_widget = self.poi_layout.get_current_item().widget()
+            cur_widget = self.poi_layout.get_current_item()
             poi_info = cur_widget.optional_item
             self.poi_layout.remove_current_focused_item()
             self.poi_focus_changed(event=False, allowed_btn_list=["rename", "changePos", "del"])
@@ -120,7 +120,7 @@ class PointsOfInterestManager(QWidget):
         poi_info = self.del_poi()
         self.get_parent_window().toolbar_layout.POI_master(mode="del", params={"poi_info":poi_info})
     def btn_poi_rename_clicked(self, event=None, ask=True, **kwargs):
-        widget = self.poi_layout.get_current_item().widget()
+        widget = self.poi_layout.get_current_item()
         poi_info = widget.optional_item
         q_label = widget.layout.itemAt(0).widget()
         label_list = q_label.text().strip().split("\t")
@@ -159,7 +159,7 @@ class PointsOfInterestManager(QWidget):
             widget.repaint()
     def btn_poi_changePos_clicked(self, event=None):
         # バイナリアップデート
-        widget = self.poi_layout.get_current_item().widget()
+        widget = self.poi_layout.get_current_item()
         poi_info = widget.optional_item
         poi_info.poi_data = [self.get_parent_window().spectrum_widget.cur_x, self.get_parent_window().spectrum_widget.cur_y]
         self.get_parent_window().toolbar_layout.POI_master(mode="mod_data", params={"poi_info":poi_info})

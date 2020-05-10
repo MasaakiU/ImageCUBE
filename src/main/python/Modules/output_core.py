@@ -68,8 +68,7 @@ class Output(gf.SpcLike):
         self.set_labels(fxtype=13, fytype=4, fztype=0)
         self.set_x_by_gxy(ffirst=0, flast=5000, fnpts=5000)    # 初期設定
         self.x_ori = np.copy(self.x)
-        #
-        self.log_dict = {}
+        # preprocess 追加
         self.log_dict[b"prep_order"] = [['SCL_master', {"mode":None}]]
     def set_x_by_gxy(self, ffirst, flast, fnpts):
         self.dat_fmt = "gx-y"   # no x values are given, but they can be generated

@@ -8,6 +8,17 @@
 # https://build-system.fman.io/manual/#get_resource
 ####################################################
 
+import os, sys
+import spc
+import re
+import numpy as np
+from urllib import parse
+import functools
+import pickle
+import glob
+import traceback
+import io
+
 from PyQt5.QtWidgets import (
     QMainWindow, 
     QFileDialog, 
@@ -22,16 +33,6 @@ from PyQt5.QtCore import Qt, QEvent, pyqtSignal, QCoreApplication
 from PyQt5.QtGui import QIcon
 import pyqtgraph as pg
 
-import os, sys
-import spc
-import re
-import numpy as np
-from urllib import parse
-import functools
-import pickle
-import glob
-import traceback
-
 from Modules import my_widgets as my_w
 from Modules import popups
 from Modules import general_functions as gf
@@ -39,7 +40,6 @@ from Modules import draw
 from Modules import macros
 from Modules import MapSpectTable as mst
 from Modules import SavedPointsTable as spt
-from Modules import output_core as oc
 # インスタンスメソッドを追加
 spc.File.get_shape = gf.get_shape
 spc.File.get_size = gf.get_size
@@ -57,6 +57,7 @@ spc.File.update_object = gf.update_object
 spc.File.modify_prep_order = gf.modify_prep_order
 spc.File.toNumPy_2dArray = gf.toNumPy_2dArray
 spc.File.fmNumPy_2dArray = gf.fmNumPy_2dArray
+spc.File.remove_all_prep = gf.remove_all_prep
 
 class MainWindow(QMainWindow):
     # child_window_list_changed = pyqtSignal(QWidget)
@@ -85,13 +86,13 @@ class MainWindow(QMainWindow):
         # ボタン達（廃止の方向？）
         btnOpen = my_w.CustomPicButton("open1.svg", "open2.svg", "open3.svg", base_path=gf.icon_path)
         btnOpen.setToolTip("open '*.spc' files")
-        btnOpen.clicked.connect(functools.partial(self.open_files_clicked, resize=False))
+        btnOpen.clicked.connect(self.open_files_clicked)
         btnOpenRecursively = my_w.CustomPicButton("open_s_1.svg", "open_s_2.svg", "open_s_3.svg", base_path=gf.icon_path)
         btnOpenRecursively.setToolTip("open '*.spc' files recursively")
         btnOpenRecursively.clicked.connect(self.open_recursively_clicked)
-        btnChangeMapSize = my_w.CustomPicButton("resize1.svg", "resize2.svg", "resize3.svg", base_path=gf.icon_path)
-        btnChangeMapSize.setToolTip("resize map and open")
-        btnChangeMapSize.clicked.connect(functools.partial(self.open_files_clicked, resize=True))
+        # btnChangeMapSize = my_w.CustomPicButton("resize1.svg", "resize2.svg", "resize3.svg", base_path=gf.icon_path)
+        # btnChangeMapSize.setToolTip("resize map and open")
+        # btnChangeMapSize.clicked.connect(functools.partial(self.open_files_clicked, resize=True))
         btnMapSpctTable = my_w.CustomPicButton("spct_map_table1.svg", "spct_map_table2.svg", "spct_map_table3.svg", base_path=gf.icon_path)
         btnMapSpctTable.setToolTip("open spectrum-map table")
         btnMapSpctTable.clicked.connect(self.open_map_spect_table)
@@ -117,13 +118,13 @@ class MainWindow(QMainWindow):
         openSeqAction = my_w.CustomAction(gf.icon_path, "open_s_1.svg", 'Open Recursively', self)
         openSeqAction.setShortcut('Ctrl+Shift+O')
         openSeqAction.triggered.connect(self.open_recursively_clicked)
-        changeMapSizeAction = my_w.CustomAction(gf.icon_path, "resize1.svg", "Resize and Open", self)
-        changeMapSizeAction.setShortcut("Ctrl+Alt+O")
-        changeMapSizeAction.triggered.connect(functools.partial(self.open_files_clicked, resize=True))
-        saveAllSpectrumsAction = my_w.CustomAction(gf.icon_path, "save_spct1.svg", "Save All Spectrums", self)
-        saveAllSpectrumsAction.triggered.connect(functools.partial(self.menu_save_all_spectrums, compatible_window_types=["ms", "s", "u"]))
-        saveAllMapsAction = my_w.CustomAction(gf.icon_path, "save_map1.svg", "Save All Map Images", self)
-        saveAllMapsAction.triggered.connect(functools.partial(self.menu_save_all_maps, compatible_window_types=["ms"]))
+        # changeMapSizeAction = my_w.CustomAction(gf.icon_path, "resize1.svg", "Resize and Open", self)
+        # changeMapSizeAction.setShortcut("Ctrl+Alt+O")
+        # changeMapSizeAction.triggered.connect(functools.partial(self.open_files_clicked, resize=True))
+        captureCurrentSpectrum = my_w.CustomAction(gf.icon_path, "save_spct1.svg", "capture current spectrum", self)
+        captureCurrentSpectrum.triggered.connect(functools.partial(self.capture_current_spectrum, compatible_window_types=["ms", "s", "u"]))
+        exportAllMapsAction = my_w.CustomAction(gf.icon_path, "save_map1.svg", "Save All Map Images", self)
+        exportAllMapsAction.triggered.connect(functools.partial(self.export_all_maps, compatible_window_types=["ms"]))
         closeAction = my_w.CustomAction(gf.icon_path, "close.svg", "Close", self)
         closeAction.setShortcut("Ctrl+W")
         closeAction.triggered.connect(self.menu_close_window)
@@ -150,9 +151,9 @@ class MainWindow(QMainWindow):
         window_sizeAction = my_w.CustomAction(gf.icon_path, "map_size1.svg", "change window size", self)
         window_sizeAction.triggered.connect(functools.partial(self.change_window_size, compatible_window_types=["ms","s","u","t"]))
         spectrum_x_Action = QAction("set spectrum x range", self)
-        spectrum_x_Action.triggered.connect(functools.partial(self.set_spectrum_x_range, compatible_window_types=["ms","s","u"]))
+        spectrum_x_Action.triggered.connect(functools.partial(self.set_spectrum_range, compatible_window_types=["ms","s","u"], x_or_y="x"))
         spectrum_y_Action = QAction("set spectrum y range", self)
-        spectrum_y_Action.triggered.connect(functools.partial(self.set_spectrum_y_range, compatible_window_types=["ms","s","u"]))
+        spectrum_y_Action.triggered.connect(functools.partial(self.set_spectrum_range, compatible_window_types=["ms","s","u"], x_or_y="y"))
         reset_map_viewAction = QAction("reset map view", self)
         reset_map_viewAction.triggered.connect(functools.partial(self.reset_map_view, compatible_window_types=["ms"]))
         jump_to_map_locAction = QAction("jump to (x, y) on the map image", self)
@@ -170,13 +171,14 @@ class MainWindow(QMainWindow):
         # Spectrum Actions
         addSpectrumAction = my_w.CustomAction(gf.icon_path, "add_spct1.svg", "Add Spectrum from a File", self)
         addSpectrumAction.triggered.connect(functools.partial(self.menu_addSpectrumFmFile, compatible_window_types=["ms", "s", "u"]))
+        addSpectrumAction.setShortcut("Ctrl+A")
         addCurSpectrumAction = my_w.CustomAction(gf.icon_path, "add_cur_spec1.svg", "Add Current Spectrum", self)
         addCurSpectrumAction.triggered.connect(functools.partial(self.menu_addCurSpectrum, compatible_window_types=["ms"]))
         linearSubtractSpectrumAction = my_w.CustomAction(gf.icon_path, "spct_calc1.svg", "Gaussian Fitted Subtract Spectrum", self)
         linearSubtractSpectrumAction.triggered.connect(functools.partial(self.menu_linearSubtractSpectrum, compatible_window_types=["ms", "s"]))
-        # Map Actions
-        setCfpAction = my_w.CustomAction(gf.icon_path, "cfp1.svg", "Set Cell Free Position", self)
-        setCfpAction.triggered.connect(functools.partial(self.menu_setCfp, compatible_window_types=["ms"]))
+        # # Map Actions
+        # setCfpAction = my_w.CustomAction(gf.icon_path, "cfp1.svg", "Set Cell Free Position", self)
+        # setCfpAction.triggered.connect(functools.partial(self.menu_setCfp, compatible_window_types=["ms"]))
         # Basic Image Reconstruction Actions
         signalIntensityAction = my_w.CustomAction(gf.icon_path, "sig_int1.svg", "Signal Intensity", self)
         signalIntensityAction.triggered.connect(functools.partial(self.menu_sigInt, compatible_window_types=["ms"]))
@@ -212,9 +214,9 @@ class MainWindow(QMainWindow):
         fileMenu = self.menu_bar.addMenu(' &File')
         fileMenu.addAction(openAction)
         fileMenu.addAction(openSeqAction)
-        fileMenu.addAction(changeMapSizeAction)
-        fileMenu.addAction(saveAllSpectrumsAction)
-        fileMenu.addAction(saveAllMapsAction)
+        # fileMenu.addAction(changeMapSizeAction)
+        fileMenu.addAction(captureCurrentSpectrum)
+        fileMenu.addAction(exportAllMapsAction)
         fileMenu.addAction(closeAction)
         fileMenu.addAction(closeAllAction)
         fileMenu.addAction(settingsAction)
@@ -247,7 +249,7 @@ class MainWindow(QMainWindow):
         spectrum_processingMenu.addAction(linearSubtractSpectrumAction)
         # マップ
         map_processingMenu = processMenu.addMenu(" &Map Processing")
-        map_processingMenu.addAction(setCfpAction)
+        # map_processingMenu.addAction(setCfpAction)
         # ベーシック
         basic_image_reconstructionMenus = processMenu.addMenu(" &Basic Image Reconstruction")
         basic_image_reconstructionMenus.addAction(signalIntensityAction)
@@ -274,7 +276,7 @@ class MainWindow(QMainWindow):
         btnLayout = QHBoxLayout()
         btnLayout.addWidget(btnOpen)
         btnLayout.addWidget(btnOpenRecursively)
-        btnLayout.addWidget(btnChangeMapSize)
+        # btnLayout.addWidget(btnChangeMapSize)
         btnLayout.addWidget(btnMapSpctTable)
         btnLayout.addWidget(btnPoiManager)
         btnLayout.addWidget(btnNewUnmixingMehod)
@@ -298,27 +300,30 @@ class MainWindow(QMainWindow):
     # 開く
     def open_files(func):
         def _wrapper(self, *args, **kwargs):
-            file_path_list, resize = func(self, *args, **kwargs)
+            file_path_list = func(self, *args, **kwargs)
+            print(file_path_list)
             if file_path_list:
                 for file_path in file_path_list:
+                    # unmix method file
                     if file_path.endswith(".umx"):
                         self.open_unmixing_window(file_path)
-                    elif file_path.endswith(".spc") or file_path.endswith(".spcl"):
-                        spc_file = gf.open_spc_spcl(file_path)
+                    # normal spectrum file
+                    elif file_path.endswith(".spc") | file_path.endswith(".spcl") | file_path.endswith(".cspc") | file_path.endswith(".out"):
+                        spc_file, traceback = gf.open_spc_spcl(file_path)
+                        if spc_file is None:
+                            warning_popup = popups.WarningPopup("File '{0}' could not be opened.\nERROR: {1}".format(file_path, traceback))
+                            warning_popup.exec_()
+                            continue
+                        # 初期処理（変数のバイナリからの変換など）：特殊ファイル（.cspc, .out）は初期処理しない。
+                        if spc_file.length is not None:
+                            spc_file = gf.spc_init(spc_file, file_path)
                         # 単一スペクトルの場合
                         if spc_file.fnsub == 1:
                             self.open_spectrum_window(spc_file, file_path)
                         # map画像以上の場合
                         else:
-                            # 初期設定
-                            spc_file = gf.spc_init(spc_file, file_path)
-                            # windowを開く
                             self.open_map_spect_window(spc_file, file_path)
-                    elif file_path.endswith(".out"):
-                        out_file = oc.open_output_file(file_path)
-                        if out_file is not None:
-                            # windowを開く
-                            self.open_spectrum_window(out_file, file_path)
+                        print(gf.int2datetime(spc_file.fdate))
                     gf.settings["last opened dir"] = os.path.dirname(file_path)
                     gf.save_settings_file()
                     # GUI update
@@ -326,28 +331,28 @@ class MainWindow(QMainWindow):
         return _wrapper
     # 通常の開く
     @open_files
-    def open_files_clicked(self, event=None, resize=False):
-        file_path_list, file_type = QFileDialog.getOpenFileNames(self, 'Select spctrum file', gf.settings["last opened dir"], filter="spectrum files (*.spc *.spcl *.umx *.out)")
-        return file_path_list, resize
+    def open_files_clicked(self, event=None):
+        file_path_list, file_type = QFileDialog.getOpenFileNames(self, 'Select spctrum file', gf.settings["last opened dir"], 
+            filter="spectrum files (*.spc *.spcl *.umx *.out *.cspc)")
+        return file_path_list
     # ダブルクリックにより開く
     @open_files
     def open_a_file(self, file_path):
-        resize = False
-        return [file_path], resize
+        return [file_path]
     # 再帰的に開く
     @open_files
-    def open_recursively_clicked(self, event=None, resize=False):
+    def open_recursively_clicked(self, event=None):
         # ファイルを見つけていく
         dir_path = QFileDialog.getExistingDirectory(self, 'select folder', gf.settings["last opened dir"])
         if len(dir_path):
             spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
-            return spc_path_list, resize
+            return spc_path_list
         else:
-            return [], resize
+            return []
     # パスから開く
     @open_files
     def just_open(self, spc_path):
-        return [spc_path], False
+        return [spc_path]
     # windowで開く
     def open_spectrum_window(self, spc_file, file_path):
         spectrum_window = SpectrumWindow(spc_file, file_path, parent=self)
@@ -396,18 +401,18 @@ class MainWindow(QMainWindow):
     def process_opened_window(func):
         def _wrapper(self, compatible_window_types, *args, **kwargs):
             if self.current_focused_window.window_type in compatible_window_types:
-                func(self)
+                func(self, *args, **kwargs)
             else:
                 warning_popup = popups.WarningPopup("No window is opened or the window type is invalid!")
                 warning_popup.exec_()
         return _wrapper
     # Files
     @ process_opened_window
-    def menu_save_all_maps(self):
-        self.current_focused_window.toolbar_layout.save_all_maps()
+    def export_all_maps(self):
+        self.current_focused_window.toolbar_layout.export_all_maps(ext=".tiff .svg")
     @ process_opened_window
-    def menu_save_all_spectrums(self):
-        self.current_focused_window.toolbar_layout.save_spectrum()
+    def capture_current_spectrum(self):
+        self.current_focused_window.toolbar_layout.export_svg()
     def menu_close_window(self):
         if self.current_focused_window.window_type == "main":
             return
@@ -431,10 +436,27 @@ class MainWindow(QMainWindow):
             height = self.current_focused_window.frameGeometry().height()
         self.current_focused_window.resize(width, height)
     @ process_opened_window
-    def set_spectrum_x_range(self):
-        x_range, y_range = self.current_focused_window.spectrum_widget.viewRange()
-        cur_x1, cur_x2 = x_range
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x1, cur_x2], labels=("left", "right"), title="set spectrum x range", ckbx_messages=[" FULL", " propagate to all"])
+    def set_spectrum_range(self, x_or_y=None):
+        if x_or_y == "x":
+            idx = 0
+            labels = ("left", "right")
+            ckbx_messages = [" FULL", " propagate to all"]
+            func_name = "setXRange"
+            auto_func_name = "get_auto_xRange"
+        else:
+            idx = 1
+            labels = ("top", "bottom")
+            ckbx_messages = [" AUTO", " propagate to all"]
+            func_name = "setYRange"
+            auto_func_name = "get_auto_yRange"
+        cur_ranges = self.current_focused_window.spectrum_widget.viewRange()
+        main_range = cur_ranges[idx]
+        sub_ranage = cur_ranges[1 - idx]
+        size_setting_popup = popups.RangeSettingsPopupWithCkbx(
+            initial_values=main_range, 
+            labels=labels, 
+            title="set spectrum {0} range".format(x_or_y), 
+            ckbx_messages=ckbx_messages)
         done = size_setting_popup.exec_()
         if not done:
             return
@@ -444,36 +466,16 @@ class MainWindow(QMainWindow):
             window_list = [self.current_focused_window]
         for window in window_list:
             if not size_setting_popup.ckbxes[0].isChecked():
-                x1 = size_setting_popup.spbx_RS1.value()
-                x2 = size_setting_popup.spbx_RS2.value()
-                window.spectrum_widget.setXRange(x1, x2, padding=0)
+                range_1 = size_setting_popup.spbx_RS1.value()
+                range_2 = size_setting_popup.spbx_RS2.value()
+                padding = 0
             # オート
             else:
-                x1, x2 = np.sort(window.spectrum_widget.spc_file.x[[0, -1]])
-                window.spectrum_widget.setXRange(x1, x2)
-    @ process_opened_window
-    def set_spectrum_y_range(self):
-        x_range, y_range = self.current_focused_window.spectrum_widget.viewRange()
-        cur_y1, cur_y2 = y_range
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_y1, cur_y2], labels=("top", "bottom"), title="set spectrum y range", ckbx_messages=[" AUTO", " propagate to all"])
-        done = size_setting_popup.exec_()
-        if not done:
-            return
-        if size_setting_popup.ckbxes[1].isChecked():
-            window_list = self.get_windows(window_types=["u", "s", "ms"])
-        else:
-            window_list = [self.current_focused_window]
-        for window in window_list:
-            if not size_setting_popup.ckbxes[0].isChecked():
-                y1 = size_setting_popup.spbx_RS1.value()
-                y2 = size_setting_popup.spbx_RS2.value()
-                window.spectrum_widget.setYRange(y1, y2, padding=0)
-            # オート：画面に何も表示されてない場合は、変更しない
-            else:
-                xData = window.spectrum_widget.master_spectrum.xData
-                yData = window.spectrum_widget.master_spectrum.yData
-                y1, y2 = gf.get_local_minmax(xData, yData, x_range)
-                window.spectrum_widget.setYRange(y1, y2)
+                auto_func = getattr(window.spectrum_widget, auto_func_name)
+                range_1, range_2 = auto_func(sub_ranage)
+                padding = None
+            func = getattr(window.spectrum_widget, func_name)
+            func(range_1, range_2, padding=padding)
     @ process_opened_window
     def reset_map_view(self):
         self.current_focused_window.map_widget.img_view_box.autoRange()
@@ -481,7 +483,10 @@ class MainWindow(QMainWindow):
     def jump_to_map_loc(self):
         cur_x = self.current_focused_window.spectrum_widget.cur_x
         cur_y = self.current_focused_window.spectrum_widget.cur_y
+        h, w = self.current_focused_window.spectrum_widget.spc_file.get_shape()
         size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x, cur_y], labels=("x", "y"), title="set position", double=False, ckbx_messages=[" MAX INTENSITY", " propagate to all"])
+        size_setting_popup.set_spinbox_range(range=(0, w-1), RS_type="RS1")
+        size_setting_popup.set_spinbox_range(range=(0, h-1), RS_type="RS2")
         done = size_setting_popup.exec_()
         if not done:
             return
@@ -541,9 +546,9 @@ class MainWindow(QMainWindow):
     def menu_linearSubtractSpectrum(self):
         self.current_focused_window.toolbar_layout.execute_spectrum_linear_subtraction()
     # Map
-    @ process_opened_window
-    def menu_setCfp(self):
-        self.current_focused_window.toolbar_layout.set_CellFreePosition()
+    # @ process_opened_window
+    # def menu_setCfp(self):
+    #     self.current_focused_window.toolbar_layout.set_CellFreePosition()
     # Unmixing
     @ process_opened_window
     def menu_umx(self):
@@ -587,6 +592,7 @@ class MainWindow(QMainWindow):
             error_log = traceback.format_exc()
             warning_popup = popups.WarningPopup(error_log)
             warning_popup.exec_()
+        self.temp_variables = {}
     # window取得
     def get_windows(self, window_types):
         windows = []
@@ -630,7 +636,8 @@ class SpectrumWindow(QWidget):
         self.window_type = "s"
         self.file_path = file_path
         self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(self.file_path)
-        self.cur_overlayed_spc_info = None
+        self.cur_displayed_spc_content = None
+        self.cur_overlayed_spc_content = None
         # 全体設定
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose, True)
@@ -647,9 +654,11 @@ class SpectrumWindow(QWidget):
         self.setLayout(layout)
         # 初期処理
         self.execute_preprocess(mode="init")
+        self.setAttribute(Qt.WA_DeleteOnClose)
     # スペクトルオンリーのデータは、今のところ preprocess なし
     def execute_preprocess(self, mode=None):
-        pass
+        if b"prep_order" in self.spectrum_widget.spc_file.log_dict.keys():
+            self.toolbar_layout.execute_preprocess(mode=mode)
     def focusInEvent(self, event):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
@@ -667,6 +676,7 @@ class MapSpectWindow(QWidget):
         self.window_type = "ms"
         self.file_path = file_path
         self.dir_path, self.file_name, self.file_name_wo_ext = gf.file_name_processor(self.file_path)
+        self.cur_displayed_spc_content = None
         self.cur_displayed_map_content = None
         self.cur_overlayed_map_content = None
         # 全体設定
@@ -690,6 +700,7 @@ class MapSpectWindow(QWidget):
         self.setLayout(layout)
         # 初期処理
         self.execute_preprocess(mode="init")
+        self.setAttribute(Qt.WA_DeleteOnClose)
     def set_window_title(self):
         self.setWindowTitle(
             "{0} ({1}(x) x {2}(y) x {3}(spec.))".format(
@@ -758,6 +769,7 @@ class UnmixingMethodWindow(QWidget):
             self.display_method(UMX)
             self.spectrum_widget.vb2.autoRange()
         self.setWindowTitle(self.file_name)
+        self.setAttribute(Qt.WA_DeleteOnClose)
     def execute_preprocess(self, mode=None):
         # set prep_order to pseudo data
         new_prep_order = [["set_range", {"mode":mode, "left":None, "right":None}]]

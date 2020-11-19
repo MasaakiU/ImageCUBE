@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QPushButton, 
     QSplitter, 
     QDialog, 
+    QMainWindow, 
     )
 from PyQt5.QtCore import (
     Qt, 
@@ -30,7 +31,7 @@ from . import general_functions as gf
 from . import my_widgets as my_w
 from . import popups
 
-class MapSpectTable(QWidget):
+class MapSpectTable(QMainWindow):
     def __init__(self, parent=None):
         self.parent = parent
         self.window_type = "t"
@@ -97,12 +98,11 @@ class MapSpectTable(QWidget):
         self.btn_p_hide_show.setEnabled(False)
         btnLayout_p = QHBoxLayout()
         btnLayout_p.setContentsMargins(0,0,0,0)
+        btnLayout_p.setSpacing(7)
         btnLayout_p.addWidget(self.btn_p_CRR)
-        btnLayout_p.addWidget(QLabel("  "))
         btnLayout_p.addWidget(self.btn_p_NR)
         btnLayout_p.addStretch(1)
         btnLayout_p.addWidget(self.btn_p_hide_show)
-        btnLayout_p.addWidget(QLabel("  "))
         btnLayout_p.addWidget(self.btn_p_revert)
         # マップボタンエリア
         btn_width = 97
@@ -120,13 +120,11 @@ class MapSpectTable(QWidget):
         self.btn_m_others.setEnabled(False)
         btnLayout_m = QHBoxLayout()
         btnLayout_m.setContentsMargins(0,0,0,0)
+        btnLayout_m.setSpacing(7)
         btnLayout_m.addStretch(1)
         btnLayout_m.addWidget(self.btn_m_export)
-        btnLayout_m.addWidget(QLabel("  "))
         btnLayout_m.addWidget(self.btn_m_remove)
-        btnLayout_m.addWidget(QLabel("  "))
         btnLayout_m.addWidget(self.btn_m_hide_show)
-        btnLayout_m.addWidget(QLabel("  "))
         btnLayout_m.addWidget(self.btn_m_others)
         # スペクトルボタンエリア
         self.btn_s_export = my_w.CustomMenuButton("export", icon_path=gf.icon_path, divide=False)
@@ -143,13 +141,11 @@ class MapSpectTable(QWidget):
         self.btn_s_others.setEnabled(False)
         btnLayout_s = QHBoxLayout()
         btnLayout_s.setContentsMargins(0,0,0,0)
+        btnLayout_s.setSpacing(7)
         btnLayout_s.addStretch(1)
         btnLayout_s.addWidget(self.btn_s_export)
-        btnLayout_s.addWidget(QLabel("  "))
         btnLayout_s.addWidget(self.btn_s_remove)
-        btnLayout_s.addWidget(QLabel("  "))
         btnLayout_s.addWidget(self.btn_s_hide_show)
-        btnLayout_s.addWidget(QLabel("  "))
         btnLayout_s.addWidget(self.btn_s_others)
         # レイアウト
         pre_area_layout.addLayout(btnLayout_p)
@@ -219,7 +215,12 @@ class MapSpectTable(QWidget):
         self.btn_m_others.setMenu(m_others_menu)
         # その他
         self.setFocusPolicy(Qt.StrongFocus)
-        self.setLayout(self.layout)
+        # self.setLayout(self.layout)
+        # tab barが現れるのを防ぐため、QWidget ではなく QMainWindow で window を作成し、TabBarを消去した。
+        central_widget = QWidget()
+        central_widget.setLayout(self.layout)
+        self.setCentralWidget(central_widget)
+        self.setUnifiedTitleAndToolBarOnMac(True)
     def add_content(self, added_content):
         # レイアウト
         target_layout = getattr(self, "%s_layout"%added_content.info["content"])
@@ -288,13 +289,7 @@ class MapSpectTable(QWidget):
         if not event:
             return
         # フォーカスされた場合
-        if window_type == "added":
-            self.btnSetEnabled(enable=True, target_layout="m", key_list=["export", "remove", "hide_show", "others"])
-            self.m_e_action_dict["as spc"].setEnabled(False)
-        elif window_type == "unmixed":
-            self.btnSetEnabled(enable=True, target_layout="m", key_list=["export", "remove", "hide_show", "others"])
-            self.m_e_action_dict["as spc"].setEnabled(True)
-        elif window_type == "subtracted":
+        if window_type in ("added", "unmixed", "subtracted"):
             self.btnSetEnabled(enable=True, target_layout="m", key_list=["export", "remove", "hide_show", "others"])
             self.m_e_action_dict["as spc"].setEnabled(True)
         else:
@@ -307,7 +302,7 @@ class MapSpectTable(QWidget):
     def half_focus_process(self, added_content):
         target_layout = getattr(self, "{0}_layout".format(added_content.info["content"]))
         try:
-            abs_id = added_content.info["data"][2].abs_id
+            abs_id = added_content.info["advanced_data"].abs_id
         except:
             abs_id = None
         for w in target_layout.get_all_items():
@@ -315,7 +310,7 @@ class MapSpectTable(QWidget):
             if abs_id is not None:
                 try:
                     # abs_id が同じものを
-                    if w.optional_item.info["data"][2].abs_id == abs_id:
+                    if w.optional_item.info["advanced_data"].abs_id == abs_id:
                         # 自分自身でなければ、half focuesed にする or しない
                         if w.optional_item != added_content:
                             w.half_focus(added_content.focused)

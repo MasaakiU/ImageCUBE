@@ -47,13 +47,36 @@ from PyQt5.QtWidgets import (
     )
 
 # デフォルト値
-ver = "0.6.2"
+ver = "0.6.4"
 print("version: %s"%ver)
 """
-updates in version 0.6.2
-Bug fixes in opening output files.
-Bug fixes in MapSpectrumTable.
-New function to import custom (extended) spc file.
+------
+updates in version 0.6.3
+------
+Updated spectrum subtraction options
+Updated batch (macro) procedures.
+    export and import of action flow were supported
+    exported file extension is .umx
+    the same format as unmixing method
+
+------
+updates in version 0.6.4
+------
+Updated unmixing args: from standard_type_list to line_idx
+support extension filter for action flow.
+width of the left and the right section in action flow window become adjustable.
+"Show Tab Bar" action in the "View" menu of the menu bar was removed.
+Added axis title of the spectrum window.
+=====
+bugs to fix
+# umxed spectrum を hide > map_window を focus すると、完全にスペクトルが消えてしまう
+# それに伴って、xrange, yrangeも変わる。
+# map_window に focus を戻した時に、コントラストが変わってしまう場合がある
+
+# macro の subtract spectrum で、advanced を設定した後、再度 advanced をクリックしたのちポップアップでキャンセルを選択すると、to_horizontal に戻ってしまう
+
+# macro の pause で、新しい ファイル が開かれる際、以前のファイルの poi が消えない。（同じ poi 名だと、消える？）
+
 """
 
 default_last_opened_dir = os.path.expanduser('~') + '/Desktop'
@@ -131,6 +154,18 @@ settings = {
     "u_color":u_color,
     "t_color":t_color,
     }
+
+def import_lut(file_path):
+    # open lut
+    with open(file_path, "rb") as f:
+        lut_binary = f.read()
+    if len(lut_binary) != 768:
+        from Modules import popups
+        warning_popup = popups.WarningPopup("invalid file\n{0}".format(file_path))
+        warning_popup.exec_()
+        return None
+    lut_array = np.array(struct.unpack("<768B", lut_binary)).reshape(3, -1).T # shape:(256, 3[R, G, B])
+    return lut_array
 
 # 設定ファイルの読み込み（なければ作る：初回のみ？）
 def load_settings_file():
@@ -287,6 +322,24 @@ def get_save_path(save_path_pre):
         N += 1
         save_path_pre = "{0}_{1}{2}".format(root, N, ext)
     return save_path_pre, N
+def get_save_dir(save_dir_pre):
+    N = 0
+    root = copy.deepcopy(save_dir_pre)
+    while os.path.exists(save_dir_pre):
+        N += 1
+        save_dir_pre = "{0}_{1}".format(root, N)
+    return save_dir_pre, N
+# CamleCase, snake_case 相互変換
+    """
+    CRR_master          = camel2snake(CRRMaster)
+    CRRMaster           = snake2camel(CRR_master)
+    cosmic_ray_removal  = camel2snake(CosmicRayRemoval)
+    CosmicRayRemoval    = snake2camel(cosmic_ray_removal)
+    """
+def camel2snake(string):
+    return "_".join(map(lambda x: x if x.upper() == x else x.lower(), re.findall('[A-Z][^A-Z]+|[A-Z]+(?=[A-Z])', string)))
+def snake2camel(string):
+    return "".join(s.capitalize() if (s.upper() != s) else s for s in string.split("_"))
 
 # y軸を左右に作る時：vb1にvb2を追加する。その時の、vbサイズを同一にする用
 def updateViews(vb1, vb2):
@@ -370,6 +423,13 @@ def get_local_minmax(x_list, y_list, x_range):
         return local_y.min(), local_y.max()
     else:
         return None, None
+def get_local_average(x_list, y_list, x_range):
+    local_area = (x_range[0] <= x_list) & (x_list <= x_range[1])
+    local_y = y_list[local_area] 
+    if len(local_y) > 0:
+        return np.average(local_y)
+    else:
+        return None
 def get_local_minmax_multi(xyData_list, x_range):
     local_y_min_list = []
     local_y_max_list = []
@@ -380,6 +440,16 @@ def get_local_minmax_multi(xyData_list, x_range):
         local_y_min_list.append(local_y_min)
         local_y_max_list.append(local_y_max)
     return min(local_y_min_list), max(local_y_max_list)
+def get_local_average_multi(xyData_list, x_range):
+    local_y_average_list = []
+    for xData, yData in xyData_list:
+        local_y_average = get_local_average(xData, yData, x_range)
+        if local_y_average is None:
+            continue
+        else:
+            local_y_average_list.append(local_y_average)
+    return np.mean(local_y_average_list)
+
 def spectrum_linear_subtraction_core(master_x_list, master_y_list, added_regional_y_list, method):
     if method == "'n' as 1":
         return np.array([1,0,0])
@@ -405,16 +475,17 @@ def get_data(self, sRS, eRS, sub_idx=0):    #, sort=False
     sRS_idx, eRS_idx = np.sort([self.get_idx(sRS), self.get_idx(eRS)])
     y_list = self.sub[sub_idx].y[sRS_idx:eRS_idx + 1]
     x_list = self.x[sRS_idx:eRS_idx + 1]
-    # # sortがTRUEなら、x_listで昇順に並べ替えた形で表示
-    # if sort:
-    #     order = np.argsort(x_list)
-    #     x_list = x_list[order]
-    #     y_list = y_list[order]
     return x_list, y_list
-# # x軸方向のインターバルを求める
-# def get_RS_diff(self):
-#     RS_diff = np.absolute((self.ffirst - self.flast) / self.fnpts)
-#     return(RS_diff)
+def get_skipped_data(self, sRS_list, eRS_list, sub_idx=0):
+    skipped_x_list = np.empty(0, dtype=float)
+    skipped_y_list = np.empty(0, dtype=float)
+    connection_list = np.empty(0, dtype=bool)
+    for sRS, eRS in zip(sRS_list, eRS_list):
+        x_list, y_list = self.get_data(sRS, eRS, sub_idx=sub_idx)
+        skipped_x_list = np.hstack((skipped_x_list, x_list))
+        skipped_y_list = np.hstack((skipped_y_list, y_list))
+        connection_list = np.hstack((connection_list, np.ones(len(x_list)-1, dtype=bool), np.zeros(1, dtype=bool)))
+    return skipped_x_list, skipped_y_list, connection_list
 
 # ポイント強度によるmap作成
 def get_point_intensity_list(self, RS):
@@ -493,7 +564,6 @@ def write_to_binary(self, file_path, master_key, key_list, data_list, log_dict=T
         self.write_to_object(master_key, key_list, data_list)
 def write_to_object(self, master_key, key_list, data_list):
     for key, data in zip(key_list, data_list):
-        print(key, data)
         self.log_dict[key.encode()] = data
     # log_other には同じキーが 2 つ入ってる
     binary_master_key = "[{0}]".format(master_key).encode()
@@ -594,8 +664,7 @@ def remove_all_prep(self, except_list=[]):
         elif func_name == "CustomBtn_master":
             pass
         else:
-            print(func_name)
-            raise Exception("unknown preprocesses")
+            raise Exception("unknown preprocesses: {0}".format(func_name))
 def spc_init(spc_file, file_path):
     ###
     # 古いバージョンで開いたspcファイルは、log blockのサイズ (self.logsizd) 情報がupdateされていないものがある。それの対処。
@@ -1070,6 +1139,74 @@ def load_umx(file_path):
     # 'subresv': b'\x00\x00\x00\x00', 
     # 'y': array([149.07777405, 137.9009552 , 131.74209595, ..., 255.42512512, 250.27589417, 209.69833374])
     # }
+# --------------------------
+# units for x,z,w axes
+# --------------------------
+fxtype_op = ["Arbitrary",
+                "Wavenumber (cm-1)",
+                "Micrometers (um)",
+                "Nanometers (nm)",
+                "Seconds ",
+                "Minutes", 
+                "Hertz (Hz)",
+                "Kilohertz (KHz)",
+                "Megahertz (MHz) ",
+                "Mass (M/z)",
+                "Parts per million (PPM)",
+                "Days",
+                "Years",
+                "Raman Shift (cm-1)",
+                "eV",
+                "XYZ text labels in fcatxt (old 0x4D version only)",
+                "Diode Number",
+                "Channel",
+                "Degrees",
+                "Temperature (F)",
+                "Temperature (C)",
+                "Temperature (K)",
+                "Data Points",
+                "Milliseconds (mSec)",
+                "Microseconds (uSec) ",
+                "Nanoseconds (nSec)",
+                "Gigahertz (GHz)",
+                "Centimeters (cm)",
+                "Meters (m)",
+                "Millimeters (mm)",
+                "Hours"]
+# --------------------------
+# units y-axis
+# --------------------------
+fytype_op = ["Arbitrary Intensity",
+                "Interferogram",
+                "Absorbance",
+                "Kubelka-Munk",
+                "Counts",
+                "Volts",
+                "Degrees",
+                "Milliamps",
+                "Millimeters",
+                "Millivolts",
+                "Log(1/R)",
+                "Percent",
+                "Intensity",
+                "Relative Intensity",
+                "Energy",
+                "",
+                "Decibel",
+                "",
+                "",
+                "Temperature (F)",
+                "Temperature (C)",
+                "Temperature (K)",
+                "Index of Refraction [N]",
+                "Extinction Coeff. [K]",
+                "Real",
+                "Imaginary",
+                "Complex"]
+fytype_op2 = ["Transmission",
+                "Reflectance",
+                "Arbitrary or Single Beam with Valley Peaks",
+                "Emission"]
 class SpcLike(spc.File):
     def __init__(self):
         # main header
@@ -1416,7 +1553,14 @@ class SubLike(subFile):
             "subwlevel", 
             "subresv"
         ]
-        subattrib_data = [getattr(self, attrib) for attrib in subattrib_list]
+
+        # print(self.subindx)
+
+        # subattrib_data = [getattr(self, attrib) for attrib in subattrib_list]
+
+        subattrib_data = [getattr(self, attrib) if attrib != "subindx" else getattr(self, attrib)%65536 for attrib in subattrib_list]
+
+
         return subhead_str + "f"*self.subnpts, subattrib_data + list(self.y)
 def open_spc_spcl(file_path):
     try:
@@ -1434,10 +1578,43 @@ def open_spc_spcl(file_path):
             from . import cspc_core as cspc
             spc_file = cspc.open_cspc_file(file_path)
         else:
-            raise Exception("unknown extension")
+            base, ext = os.path.splitext(file_path)
+            raise Exception("unknown extension: {0}".format(ext))
         return spc_file, None
     except:
         return None, traceback.format_exc()
+def open_fm_imgs(file_path_list, xData):
+    np_img = np.asarray(Image.open(file_path_list[0]))
+    x, y = np_img.shape
+    numpy_2dArray = np.empty((len(file_path_list), len(np_img.flatten())), dtype=float)
+    for i, file_path in enumerate(file_path_list):
+        numpy_2dArray[i] = np.asarray(Image.open(file_path)).flatten() # このままでshapeはok
+    spc_like = SpcLike()
+    spc_like.add_xData(xData)
+    for i, data in enumerate(numpy_2dArray.T):
+        sub_like = SubLike()
+        sub_like.add_data(data, sub_idx=i)
+        spc_like.add_subLike(sub_like)
+    # preprocess 追加
+    spc_like.write_to_object(master_key="PreP", key_list=["prep_order"], data_list=['[["set_size", {"size":None,"mode":"init"}]]'.encode("utf-8")])
+    spc_like.write_to_object(master_key="map_size", key_list=["map_x", "map_y", "map_z"], data_list=[x, y, 1])
+    traceback = None
+    return spc_like, traceback
+
+def pre_open_search(spc_path):
+    # そもそも spc フィアルか（テキスト由来のファイルなどの場合はチェックしないとする）
+    with open(spc_path, 'rb') as f:
+        first_letter = f.read(2)
+        if (first_letter != b"\x04K") & (first_letter != b"\x00K"):
+            return None, None
+        f.seek(24, 0)
+        fnsub = struct.unpack("<i", f.read(4))[0]
+        try:
+            f.seek(-10000, 2) # 2: 末尾から読む
+        except:
+            f.seek(0, 0)    # 頭から全て読む（サイズが小さすぎて、10000では足りない場合）
+        matchedObject_list = list(re.finditer(b"\[map_size\]\r\nmap_x=[0-9]+\r\nmap_y=[0-9]+\r\nmap_z=[0-9]+\r\n\[map_size\]\r\n", f.read(), flags=0))
+    return fnsub, matchedObject_list
 
 def legacy_function_to_correct_logsizd(file_path, flogoff, length):
     with open(file_path, "rb+") as f:

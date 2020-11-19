@@ -22,12 +22,19 @@ from PyQt5.QtWidgets import (
     QStyle, 
     QStyleOption, 
     QMenu, 
+    QComboBox, 
     )
 from PyQt5.QtGui import (
     QPainter, 
     QIcon, 
     QPixmap, 
     QMouseEvent, 
+    QPicture, 
+    QPen, 
+    QPolygonF, 
+    QStyledItemDelegate, 
+    QFontMetrics, 
+    QStandardItem, 
     )
 from PyQt5.QtCore import (
     Qt, 
@@ -36,12 +43,15 @@ from PyQt5.QtCore import (
     QEvent, 
     QSize, 
     QPoint, 
-    QRect
+    QPointF, 
+    QRect, 
+    QRectF, 
     )
 import pyqtgraph as pg
+from pyqtgraph.graphicsItems.PlotDataItem import dataType
+from pyqtgraph import getConfigOption
 
 from . import general_functions as gf
-from . import popups
 
 # pyqtgraph の GradientEditorItem.py を変更：__init__内だから直接書き換えないと変更しにくかった…
     # 元
@@ -175,6 +185,118 @@ class CustomMenuButton(QPushButton):
         self.menu.exec_(self.mapToGlobal(point))
         event = QMouseEvent(QEvent.MouseButtonRelease, QPoint(10, 10), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
         self.mouseReleaseEvent(event)
+
+class CheckableComboBox(QComboBox):
+    # Subclass Delegate to increase item height
+    class Delegate(QStyledItemDelegate):
+        def sizeHint(self, option, index):
+            size = super().sizeHint(option, index)
+            size.setHeight(20)
+            return size
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make the combo editable to set a custom text, but readonly
+        self.setEditable(True)  
+        self.lineEdit().setReadOnly(True)
+        # Make the lineedit the same color as QPushButton
+        self.lineEdit().setStyleSheet("QLineEdit:{color:rgba(0,0,255,0)}")
+        # Use custom delegate
+        self.setItemDelegate(CheckableComboBox.Delegate())
+        # Update the text when an item is toggled
+        self.model().dataChanged.connect(self.updateText)
+        # Hide and show popup when clicking the line edit
+        self.lineEdit().installEventFilter(self)
+        self.closeOnLineEditClick = False
+        # Prevent popup from closing when clicking on an item
+        self.view().viewport().installEventFilter(self)
+    def resizeEvent(self, event):
+        # Recompute text to elide as needed
+        self.updateText()
+        super().resizeEvent(event)
+    def eventFilter(self, object, event):
+        if object == self.lineEdit():
+            if event.type() == QEvent.MouseButtonRelease:
+                if self.closeOnLineEditClick:
+                    self.hidePopup()
+                else:
+                    self.showPopup()
+                return True
+            return False
+        if object == self.view().viewport():
+            if event.type() == QEvent.MouseButtonRelease:
+                index = self.view().indexAt(event.pos())
+                item = self.model().item(index.row())
+                if item.checkState() == Qt.Checked:
+                    item.setCheckState(Qt.Unchecked)
+                else:
+                    item.setCheckState(Qt.Checked)
+                return True
+        return False
+    def showPopup(self):
+        super().showPopup()
+        # When the popup is displayed, a click on the lineedit should close it
+        self.closeOnLineEditClick = True
+    def hidePopup(self):
+        super().hidePopup()
+        # Used to prevent immediate reopening when clicking on the lineEdit
+        self.startTimer(100)
+        # Refresh the display text when closing
+        self.updateText()
+    def timerEvent(self, event):
+        # After timeout, kill timer, and reenable click on line edit
+        self.killTimer(event.timerId())
+        self.closeOnLineEditClick = False
+    def updateText(self):
+        texts = []
+        for i in range(self.model().rowCount()):
+            if self.model().item(i).checkState() == Qt.Checked:
+                texts.append(self.model().item(i).text())
+        text = " " + ", ".join(texts)
+        # Compute elided text (with "...")
+        metrics = QFontMetrics(self.lineEdit().font())
+        elidedText = metrics.elidedText(text, Qt.ElideRight, self.lineEdit().width())
+        self.lineEdit().setText(elidedText)
+    def addItem(self, text, data=None):
+        item = QStandardItem()
+        item.setText(text)
+        if data is None:
+            item.setData(text)
+        else:
+            item.setData(data)
+        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+        item.setData(Qt.Unchecked, Qt.CheckStateRole)
+        self.model().appendRow(item)
+    def addItems(self, texts, datalist=None):
+        for i, text in enumerate(texts):
+            try:
+                data = datalist[i]
+            except (TypeError, IndexError):
+                data = None
+            self.addItem(text, data)
+    def currentData(self):
+        # Return the list of selected items data
+        res = []
+        for i in range(self.model().rowCount()):
+            if self.model().item(i).checkState() == Qt.Checked:
+                res.append(self.model().item(i).data())
+        return res
+    def currentTexts(self):
+        # Return the list of selected text list
+        res = []
+        for i in range(self.model().rowCount()):
+            if self.model().item(i).checkState() == Qt.Checked:
+                res.append(self.model().item(i).text())
+        return res
+    def setCheckState(self, i, state):
+        if state == 0:
+            state = Qt.Unchecked
+        elif state == 1:
+            state = Qt.PartiallyChecked
+        elif state == 2:
+            state = Qt.Checked
+        else:
+            pass
+        self.model().item(i).setCheckState(state)
 
 class CustomAction(QAction):
     def __init__(self, icon_path, icon_name, name, parent):
@@ -484,6 +606,7 @@ class CustomHistogramLUTWidget(QWidget):
         self.FIX = not self.FIX
     def range_btn_pressed(self, event=None):
         im_min_value, im_max_value = self.imageItem().getLevels()
+        from . import popups
         range_settings_popup = popups.RangeSettingsPopup(parent=None, initial_values=(im_max_value, im_min_value), labels=("maximum values", "minimum values"))
         done = range_settings_popup.exec_()
         if done == 1:
@@ -503,7 +626,12 @@ class CustomHistogramLUTWidget(QWidget):
             self.BIT = 8
         elif self.BIT == 8:
             self.BIT = 16
-        self.bit_btn.setText("%dbit"%self.BIT)
+        self.bit_btn.setText("{0}bit".format(self.BIT))
+    def set_bit(self, bit):
+        if bit not in (8, 16,32):
+            raise Exception("invalid bit: {0}".format(bit))
+        self.BIT = bit
+        self.bit_btn.setText("{0}bit".format(self.BIT))
     def setRange(self, set_min_value, set_max_value):
         im_min_value, im_max_value = self.imageItem().getLevels()
         self.item.region.setBounds([min(im_min_value, set_min_value), max(im_max_value, set_max_value)])
@@ -548,6 +676,116 @@ class PlotDataItems(pg.PlotDataItem):
             loc += len(i)
             connect[loc - 1] = 0
         self.setData(x_data, y_data, connect=connect, **kwargs)
+
+# https://groups.google.com/forum/#!msg/pyqtgraph/NFb4edArEJc/YNvPZiy4AgAJ
+class PlotDataItemsWithLUT(pg.GraphicsObject):
+    def __init__(self, xy_data_set=None, **kargs):
+        pg.GraphicsObject.__init__(self)
+        pg.setConfigOptions(antialias=True)
+        if xy_data_set is None:
+            return
+        self.xData = None
+        self.yData = None
+        self.xDisp = None
+        self.yDisp = None
+        self.opts = {
+            'connect': 'all', 
+            "pen" : (200, 200, 200), 
+            'shadowPen': None,
+            'fillLevel': None,
+            'fillBrush': None,
+            'stepMode': None, 
+            'antialias': getConfigOption('antialias'),
+            "name" : None, 
+            "lut" : None,       # New !!
+        }
+        self.setData_set(xy_data_set, **kargs)
+    def adjustLUT(self, N_segment):
+        if self.opts["lut"].shape[0] != N_segment:
+            lut_array = np.empty((N_segment, 4), dtype=float)
+            input_segment = np.linspace(0, 1, num=self.opts["lut"].shape[0])
+            output_segment = np.linspace(0, 1, num=N_segment)
+            for i in range(4):
+                lut_array[:, i] = np.interp(output_segment, input_segment, self.opts["lut"][:, i])
+            return lut_array.astype(int)
+        else:
+            return self.opts["lut"]
+    def generatePicture(self):
+        if self.opts["lut"] is None:
+            lut = np.empty((len(self.xData), 4), dtype=int)
+            pen = self.opts["pen"]
+            if isinstance(pen, QPen):
+                color = pen.color().getRgb()
+            elif len(pen) == 3:
+                color = list(pen) + [255]
+            else:
+                color = pen
+            lut[:, :] = color
+            self.opts["lut"] = lut
+        # generate picture
+        self.picture = QPicture()
+        p = QPainter(self.picture)
+        # if "connect" == "all"
+        if isinstance(self.opts["connect"], str):
+            lut_array = self.adjustLUT(N_segment=len(self.xData))
+            # add to generated picture line by line
+            for i, col_values in enumerate(lut_array[:-1]):
+                p.setPen(pg.mkPen(col_values))
+                p.drawLine(QPointF(self.xData[i], self.yData[i]), QPointF(self.xData[i+1], self.yData[i+1]))
+        else:
+            lut_array = self.adjustLUT(N_segment=(self.opts["connect"] == 0).sum())
+            # add to generated picture with polyline
+            polygonF = QPolygonF()
+            idx = -1
+            for x, y, c in zip(self.xData, self.yData, self.opts["connect"]):
+                polygonF.append(QPointF(x, y))
+                if c == 0:
+                    idx += 1
+                    p.setPen(pg.mkPen(lut_array[idx]))
+                    p.drawPolyline(polygonF)
+                    polygonF = QPolygonF()
+    def paint(self, p, *args):
+        p.drawPicture(0, 0, self.picture)
+    def boundingRect(self):
+        return QRectF(QPointF(self.xData.min(), self.yData.min()), QPointF(self.xData.max(), self.yData.max()))
+        # return QRectF(self.picture.boundingRect())
+    def setData_set(self, *args, **kargs):
+        if len(args) == 1:
+            # custom data processing
+            xy_data_set = args[0]
+            x_data_list, y_data_list = zip(*xy_data_set)
+            x_data = np.hstack(x_data_list)
+            y_data = np.hstack(y_data_list)
+            connect = np.ones_like(x_data, dtype=int)
+            loc = 0
+            for i in x_data_list:
+                loc += len(i)
+                connect[loc - 1] = 0
+            self.opts['connect'] = connect
+        elif len(args) == 0:
+            x_data = self.xData
+            y_data = self.yData
+        elif len(args) == 3:
+            x_data = args[0]
+            x_data = args[1]
+            connect = args[2]
+        if 'name' in kargs:
+            self.opts['name'] = kargs['name']
+        for k in list(self.opts.keys()):
+            if k in kargs:
+                self.opts[k] = kargs[k]
+        self.xData = x_data.view(np.ndarray)  ## one last check to make sure there are no MetaArrays getting by
+        self.yData = y_data.view(np.ndarray)
+        self.xClean = self.yClean = None
+        self.xDisp = None
+        self.yDisp = None
+        self.generatePicture()
+        self.update()
+    def setLUT(self, lut):
+        if lut.shape[1] == 3:
+            lut = np.hstack((lut, np.ones((lut.shape[0], 1), dtype=int) * 255))
+        self.opts["lut"] = lut
+        self.setData_set()
 
 # class CustomPathSetLayout(QHBoxLayout):
 #     def __init__(self, initial_text=""):

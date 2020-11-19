@@ -58,6 +58,7 @@ spc.File.modify_prep_order = gf.modify_prep_order
 spc.File.toNumPy_2dArray = gf.toNumPy_2dArray
 spc.File.fmNumPy_2dArray = gf.fmNumPy_2dArray
 spc.File.remove_all_prep = gf.remove_all_prep
+spc.File.get_skipped_data = gf.get_skipped_data
 
 class MainWindow(QMainWindow):
     # child_window_list_changed = pyqtSignal(QWidget)
@@ -73,7 +74,8 @@ class MainWindow(QMainWindow):
         self.window_type = "main"
         self.child_window_list = []
         self.current_focused_window = self
-        self.setUnifiedTitleAndToolBarOnMac(False)
+        # QCoreApplication.setAttribute(Qt.AA_DontUseNativeMenuBar)
+        self.setUnifiedTitleAndToolBarOnMac(True) # サイズ固定すると、そもそも tab bar は現れないので、ほんとは必要ない。
         # for Plugins
         self.plugin_func_list = []
         self.temp_variables = {}
@@ -85,10 +87,10 @@ class MainWindow(QMainWindow):
         self.ButtonField = QWidget()
         # ボタン達（廃止の方向？）
         btnOpen = my_w.CustomPicButton("open1.svg", "open2.svg", "open3.svg", base_path=gf.icon_path)
-        btnOpen.setToolTip("open '*.spc' files")
+        btnOpen.setToolTip("open *.spc files")
         btnOpen.clicked.connect(self.open_files_clicked)
         btnOpenRecursively = my_w.CustomPicButton("open_s_1.svg", "open_s_2.svg", "open_s_3.svg", base_path=gf.icon_path)
-        btnOpenRecursively.setToolTip("open '*.spc' files recursively")
+        btnOpenRecursively.setToolTip("open *.spc files recursively")
         btnOpenRecursively.clicked.connect(self.open_recursively_clicked)
         # btnChangeMapSize = my_w.CustomPicButton("resize1.svg", "resize2.svg", "resize3.svg", base_path=gf.icon_path)
         # btnChangeMapSize.setToolTip("resize map and open")
@@ -203,11 +205,12 @@ class MainWindow(QMainWindow):
         expUmxMethodAction = my_w.CustomAction(gf.icon_path, "export_umx1.svg", "Export Unmixing Method", self)
         expUmxMethodAction.triggered.connect(functools.partial(self.menu_expUmxMethod, compatible_window_types=["u"]))
         # Plugin Actions
-        openBatchWindAction = my_w.CustomAction(gf.icon_path, "batch_1.svg", "Open Batch Window", self)
+        openBatchWindAction = my_w.CustomAction(gf.icon_path, "batch_1.svg", "Open Action Flow Window", self)
         openBatchWindAction.setShortcut("Ctrl+B")
         openBatchWindAction.triggered.connect(self.batch_processing_clicked)
         syncPluginFolderAction = my_w.CustomAction(gf.icon_path, "sync_plugin1.svg", "Sync with plugin folder", self)
         syncPluginFolderAction.triggered.connect(self.import_plugin)
+        syncPluginFolderAction.setShortcut("Ctrl+R")
         # メニューバー
         self.menu_bar = QMenuBar(self)
         # ファイル
@@ -300,10 +303,12 @@ class MainWindow(QMainWindow):
     # 開く
     def open_files(func):
         def _wrapper(self, *args, **kwargs):
-            file_path_list = func(self, *args, **kwargs)
-            print(file_path_list)
-            if file_path_list:
+            file_path_list, file_type = func(self, *args, **kwargs)
+            if file_type.startswith("Spectrum files"):
                 for file_path in file_path_list:
+                    print(file_path)
+                    gf.settings["last opened dir"] = os.path.dirname(file_path)
+                    gf.save_settings_file()
                     # unmix method file
                     if file_path.endswith(".umx"):
                         self.open_unmixing_window(file_path)
@@ -324,21 +329,39 @@ class MainWindow(QMainWindow):
                         else:
                             self.open_map_spect_window(spc_file, file_path)
                         print(gf.int2datetime(spc_file.fdate))
-                    gf.settings["last opened dir"] = os.path.dirname(file_path)
-                    gf.save_settings_file()
+                    else:
+                        raise Exception("unknown file type: {0}".format(file_path))
                     # GUI update
                     QCoreApplication.processEvents()
+            elif file_type.startswith("Image files"):
+                if file_path_list:
+                    gf.settings["last opened dir"] = os.path.dirname(file_path_list[0])
+                    gf.save_settings_file()
+                    set_order_popup = popups.SetOrderPopup(list(map(lambda x: os.path.basename(x), file_path_list)), optional_items=file_path_list, optional_range_dict={"left":2000, "right":2300})
+                    done = set_order_popup.exec_()
+                    if done:
+                        xData = np.linspace(*set_order_popup.get_spinbox_values(), num=set_order_popup.get_N())
+                        spc_file, traceback = gf.open_fm_imgs(set_order_popup.get_optional_items(), xData)
+                        if spc_file is None:
+                            warning_popup = popups.WarningPopup("Files could not be opened.\nERROR: {0}".format(traceback))
+                            warning_popup.exec_()
+                        else:
+                            # 初期処理（変数のバイナリからの変換など）
+                            dirname = os.path.basename(gf.settings["last opened dir"])
+                            file_path = os.path.join(format(gf.settings["last opened dir"]), dirname)
+                            spc_file = gf.spc_init(spc_file, file_path)
+                            self.open_map_spect_window(spc_file, file_path=file_path, mode="newWin")
         return _wrapper
     # 通常の開く
     @open_files
     def open_files_clicked(self, event=None):
         file_path_list, file_type = QFileDialog.getOpenFileNames(self, 'Select spctrum file', gf.settings["last opened dir"], 
-            filter="spectrum files (*.spc *.spcl *.umx *.out *.cspc)")
-        return file_path_list
+            filter="Spectrum files (*.spc *.spcl *.umx *.out *.cspc);;Image files (*.tif *.tiff)")
+        return file_path_list, file_type
     # ダブルクリックにより開く
     @open_files
-    def open_a_file(self, file_path):
-        return [file_path]
+    def open_a_file(self, file_path, file_type):
+        return [file_path], file_type
     # 再帰的に開く
     @open_files
     def open_recursively_clicked(self, event=None):
@@ -346,20 +369,20 @@ class MainWindow(QMainWindow):
         dir_path = QFileDialog.getExistingDirectory(self, 'select folder', gf.settings["last opened dir"])
         if len(dir_path):
             spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
-            return spc_path_list
+            return spc_path_list, "Spectrum files (*.spc)"
         else:
             return []
     # パスから開く
     @open_files
     def just_open(self, spc_path):
-        return [spc_path]
+        return [spc_path], "Spectrum files (*.spc)"
     # windowで開く
     def open_spectrum_window(self, spc_file, file_path):
         spectrum_window = SpectrumWindow(spc_file, file_path, parent=self)
         spectrum_window.show()
         self.child_window_list.append(spectrum_window)
-    def open_map_spect_window(self, spc_file, file_path):
-        map_spect_window = MapSpectWindow(spc_file, file_path, parent=self)
+    def open_map_spect_window(self, spc_file, file_path, mode="init"):
+        map_spect_window = MapSpectWindow(spc_file, file_path, parent=self, mode=mode)
         map_spect_window.show()
         self.child_window_list.append(map_spect_window)
     def open_unmixing_window(self, file_path):
@@ -483,10 +506,15 @@ class MainWindow(QMainWindow):
     def jump_to_map_loc(self):
         cur_x = self.current_focused_window.spectrum_widget.cur_x
         cur_y = self.current_focused_window.spectrum_widget.cur_y
-        h, w = self.current_focused_window.spectrum_widget.spc_file.get_shape()
-        size_setting_popup = popups.RangeSettingsPopupWithCkbx(initial_values=[cur_x, cur_y], labels=("x", "y"), title="set position", double=False, ckbx_messages=[" MAX INTENSITY", " propagate to all"])
-        size_setting_popup.set_spinbox_range(range=(0, w-1), RS_type="RS1")
-        size_setting_popup.set_spinbox_range(range=(0, h-1), RS_type="RS2")
+        size_setting_popup = popups.RangeSettingsPopupWithCkbx(
+            parent=self.current_focused_window, 
+            initial_values=[cur_x, cur_y], 
+            labels=("x", "y"), 
+            title="set position", 
+            double=False, 
+            ckbx_messages=[" MAX INTENSITY", " propagate to all"]
+            )
+        size_setting_popup.set_spinbox_ranges_fm_parent()
         done = size_setting_popup.exec_()
         if not done:
             return
@@ -592,7 +620,8 @@ class MainWindow(QMainWindow):
             error_log = traceback.format_exc()
             warning_popup = popups.WarningPopup(error_log)
             warning_popup.exec_()
-        self.temp_variables = {}
+        if self.temp_variables.get("clear temp_variables", True):
+            self.temp_variables = {}
     # window取得
     def get_windows(self, window_types):
         windows = []
@@ -600,6 +629,14 @@ class MainWindow(QMainWindow):
             if window.window_type in window_types:
                 windows.append(window)
         return windows
+    def select_window(self, mode=None, **kwargs):
+        idx = kwargs["idx"]
+        try:
+            focused_window = self.child_window_list[idx]
+        except:
+            return None, "window index {0} is out of range ({1})".format(idx, len(self.child_window_list))
+        self.focusChanged(focused_window)
+        return focused_window, "continue"
     # フォーカスイベント処理
     def focusInEvent(self, event):
         print("main focused")
@@ -623,14 +660,18 @@ class MainWindow(QMainWindow):
                 url_byte = mimeData.data(mimetype).data()
                 file_path_list = parse.unquote(url_byte.decode()).replace('file://', '').replace('\r', '').strip().split("\n")
                 for file_path in file_path_list:
-                    if file_path.endswith(".spc"):
-                        self.open_a_file(file_path)
+                    ext = os.path.splitext(file_path)[1]
+                    if ext in (".spc", ".spcl", ".umx", ".out", ".cspc"):
+                        self.open_a_file(file_path, "Spectrum files (*{0})".format(ext))
+                    else:
+                        warning_popup = popups.WarningPopup("Extension {0} is not supported for drug and drop event or unreadable file.".format(ext))
+                        warning_popup.exex_()
     def closeEvent(self, event=None):
         print("closing...")
         sys.exit()
 
-class SpectrumWindow(QWidget):
-    def __init__(self, spc_file, file_path, parent=None):
+class SpectrumWindow(QMainWindow):
+    def __init__(self, spc_file, file_path, parent=None, mode="init"):
         # 情報
         self.parent = parent
         self.window_type = "s"
@@ -651,10 +692,15 @@ class SpectrumWindow(QWidget):
         layout.addWidget(self.spectrum_widget)
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
-        self.setLayout(layout)
+        # self.setLayout(layout)
         # 初期処理
-        self.execute_preprocess(mode="init")
+        self.execute_preprocess(mode=mode)
         self.setAttribute(Qt.WA_DeleteOnClose)
+        # tab barが現れるのを防ぐため、QWidget ではなく QMainWindow で window を作成し、TabBarを消去した。
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
+        self.setUnifiedTitleAndToolBarOnMac(True)
     # スペクトルオンリーのデータは、今のところ preprocess なし
     def execute_preprocess(self, mode=None):
         if b"prep_order" in self.spectrum_widget.spc_file.log_dict.keys():
@@ -669,8 +715,8 @@ class SpectrumWindow(QWidget):
         self.deleteLater()
         event.accept()
 
-class MapSpectWindow(QWidget):
-    def __init__(self, spc_file, file_path, parent=None):
+class MapSpectWindow(QMainWindow):
+    def __init__(self, spc_file, file_path, parent=None, mode="init"):
         # 情報
         self.parent = parent
         self.window_type = "ms"
@@ -697,10 +743,15 @@ class MapSpectWindow(QWidget):
         layout.addLayout(sub_layout)
         layout.setContentsMargins(gf.dcm, gf.dcm, gf.dcm, gf.dcm)
         layout.setSpacing(gf.dsp)
-        self.setLayout(layout)
+        # self.setLayout(layout)
         # 初期処理
-        self.execute_preprocess(mode="init")
+        self.execute_preprocess(mode=mode)
         self.setAttribute(Qt.WA_DeleteOnClose)
+        # tab barが現れるのを防ぐため、QWidget ではなく QMainWindow で window を作成し、TabBarを消去した。
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
+        self.setUnifiedTitleAndToolBarOnMac(True)
     def set_window_title(self):
         self.setWindowTitle(
             "{0} ({1}(x) x {2}(y) x {3}(spec.))".format(
@@ -830,7 +881,9 @@ class MainApp(QApplication):
         self._window.show()
     def event(self, event):
         if event.type() == QEvent.FileOpen:
-            self._window.open_a_file(event.url().toString().replace('file://', ''))
+            file_path = event.url().toString().replace('file://', '')
+            ext = os.path.splitext(file_path)[1]
+            self._window.open_a_file(file_path, "Spectrum files (*{0})".format(ext))
         else:
             super().event(event)
         return True

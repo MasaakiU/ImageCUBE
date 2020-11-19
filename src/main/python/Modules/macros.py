@@ -7,6 +7,9 @@ import numpy as np
 import re
 import traceback
 import struct
+import json
+import shutil
+from urllib import parse
 
 from PyQt5.QtWidgets import (
     QFileDialog, 
@@ -15,6 +18,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, 
     QHBoxLayout,  
     QSpinBox, 
+    QDoubleSpinBox, 
     QScrollArea, 
     QLabel, 
     QLineEdit, 
@@ -23,6 +27,9 @@ from PyQt5.QtWidgets import (
     QFormLayout, 
     QCheckBox, 
     QMessageBox, 
+    QSplitter, 
+    QGridLayout, 
+    QMainWindow, 
     )
 from PyQt5.QtCore import QEventLoop, QCoreApplication, Qt
 from Modules import general_functions as gf
@@ -30,46 +37,59 @@ from Modules import draw
 from Modules import popups
 from Modules import my_widgets as my_w
 
-class BatchProcessingWindow(QWidget):
+class BatchProcessingWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__()
         self.parent = parent
         self.window_type = "b"
+        self.setWindowTitle("untitled_action_flow.umx")
+        # ドラッグ・アンド・ドロップ
+        self.setAcceptDrops(True)
         # 上部ファイルパス
         self.path_entry = QLineEdit()
+        self.cmbExt = my_w.CheckableComboBox()
+        self.cmbExt.addItems([".spc", ".cspc", ".spcl", ".out"], datalist=["*.spc", "*.cspc", "*.spcl", "*.out"])
+        self.cmbExt.setCheckState(0, 2) # idx = 0 (.spc), checkstate = 2 (checked)
         btnSetPath = QPushButton("...")
         # 左部ツールレイアウト
         btnOpenWindow = my_w.CustomPicButton("open1.svg", "open2.svg", "open3.svg", base_path=gf.icon_path, parent=self)
         btnCloseWindow = my_w.CustomPicButton("close_all_1.svg", "close_all_2.svg", "close_all_3.svg", base_path=gf.icon_path, parent=self)
-        btnSetPOI = my_w.CustomPicButton("poi1.svg", "poi2.svg", "poi3.svg", base_path=gf.icon_path, parent=self)
-        btnGoToPOI = my_w.CustomPicButton("poi1.svg", "poi2.svg", "poi3.svg", base_path=gf.icon_path, parent=self)
-        btnSetSpcRange = my_w.CustomPicButton("set_spc_range1.svg", "set_spc_range2.svg", "set_spc_range3.svg", base_path=gf.icon_path, parent=self)
+        btnPOISettings = my_w.CustomPicButton("poi1.svg", "poi2.svg", "poi3.svg", base_path=gf.icon_path, parent=self)
+        btnTrashFiles = my_w.CustomPicButton("trash1.svg", "trash2.svg", "trash3.svg", base_path=gf.icon_path, parent=self)
+        btnGoToPositionOfInterest = my_w.CustomPicButton("poi1.svg", "poi2.svg", "poi3.svg", base_path=gf.icon_path, parent=self)
+        btnSetSpectrumRange = my_w.CustomPicButton("set_spc_range1.svg", "set_spc_range2.svg", "set_spc_range3.svg", base_path=gf.icon_path, parent=self)
         btnShowSpectrumWithMaxInt = my_w.CustomPicButton("show_max_int_spc1.svg", "show_max_int_spc2.svg", "show_max_int_spc3.svg", base_path=gf.icon_path, parent=self)
-        btnSelectMapImage = my_w.CustomPicButton("added_map1.svg", "added_map2.svg", "added_map3.svg", base_path=gf.icon_path, parent=self)
-        btnSelectSpectrum = my_w.CustomPicButton("spectrum1.svg", "spectrum2.svg", "spectrum3.svg", base_path=gf.icon_path, parent=self)
+        btnSelectAddedItem = my_w.CustomPicButton("added_item1.svg", "added_item2.svg", "added_item3.svg", base_path=gf.icon_path, parent=self)
         btnSetMapImageContrast = my_w.CustomPicButton("map_contrast1.svg", "map_contrast2.svg", "map_contrast3.svg", base_path=gf.icon_path, parent=self)
-        btnSignalIntensity = my_w.CustomPicButton("sig_int1.svg", "sig_int2.svg", "sig_int3.svg", base_path=gf.icon_path, parent=self)
-        btnSignalToBaseline = my_w.CustomPicButton("sig2base1.svg", "sig2base2.svg", "sig2base3.svg", base_path=gf.icon_path, parent=self)
-        btnSianglToHorizontalBaseline = my_w.CustomPicButton("sig2h_base1.svg", "sig2h_base2.svg", "sig2h_base3.svg", base_path=gf.icon_path, parent=self)
-        btnSignalToAxis = my_w.CustomPicButton("sig2axis1.svg", "sig2axis2.svg", "sig2axis3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSignalIntensity = my_w.CustomPicButton("sig_int1.svg", "sig_int2.svg", "sig_int3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSignalToBaseline = my_w.CustomPicButton("sig2base1.svg", "sig2base2.svg", "sig2base3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSianglToHBaseline = my_w.CustomPicButton("sig2h_base1.svg", "sig2h_base2.svg", "sig2h_base3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSignalToAxis = my_w.CustomPicButton("sig2axis1.svg", "sig2axis2.svg", "sig2axis3.svg", base_path=gf.icon_path, parent=self)
         btnAddCurrentSpectrum = my_w.CustomPicButton("add_cur_spec1.svg", "add_cur_spec2.svg", "add_cur_spec3.svg", base_path=gf.icon_path, parent=self)
         btnAddSpectrumFromFile = my_w.CustomPicButton("add_spct1.svg", "add_spct2.svg", "add_spct3.svg", base_path=gf.icon_path, parent=self)
-        btnSpectrumSubtraction = my_w.CustomPicButton("spct_calc1.svg", "spct_calc2.svg", "spct_calc3.svg", base_path=gf.icon_path, parent=self)
-        btnUMX = my_w.CustomPicButton("unmix1.svg", "unmix2.svg", "unmix3.svg", base_path=gf.icon_path, parent=self)
+        btnAddSpectraFromObj = my_w.CustomPicButton("add_spct1.svg", "add_spct2.svg", "add_spct3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSpectrumLinearSubtraction = my_w.CustomPicButton("spct_calc1.svg", "spct_calc2.svg", "spct_calc3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteUnmixing = my_w.CustomPicButton("unmix1.svg", "unmix2.svg", "unmix3.svg", base_path=gf.icon_path, parent=self)
         # btnExportImages = my_w.CustomPicButton("save_map1.svg", "save_map2.svg", "save_map3.svg", base_path=gf.icon_path, parent=self)
         btnExportSvg = my_w.CustomPicButton("save_spct1.svg", "save_spct2.svg", "save_spct3.svg", base_path=gf.icon_path, parent=self)
         btnSaveTarget = my_w.CustomPicButton("save_target1.svg", "save_target2.svg", "save_target3.svg", base_path=gf.icon_path, parent=self)
-        btnCosmicRayRemoval = my_w.CustomPicButton("CRR1.svg", "CRR2.svg", "CRR3.svg", base_path=gf.icon_path, parent=self)
-        btnNoiseFilterPCA = my_w.CustomPicButton("NF1.svg", "NF2.svg", "NF3.svg", base_path=gf.icon_path, parent=self)
+        btnCRRMaster = my_w.CustomPicButton("CRR1.svg", "CRR2.svg", "CRR3.svg", base_path=gf.icon_path, parent=self)
+        btnNRMaster = my_w.CustomPicButton("NF1.svg", "NF2.svg", "NF3.svg", base_path=gf.icon_path, parent=self)
         btnSetWindowSize = my_w.CustomPicButton("map_size1.svg", "map_size2.svg", "map_size3.svg", base_path=gf.icon_path, parent=self)
         btnExportData = my_w.CustomPicButton("export_spc1.svg", "export_spc2.svg", "export_spc3.svg", base_path=gf.icon_path, parent=self)
-        btnImportedPlugins = my_w.CustomPicButton("imported_plgin1.svg", "imported_plgin2.svg", "imported_plgin3.svg", base_path=gf.icon_path, parent=self)
-        btnExecuteProcedures = my_w.CustomPicButton("exec_umx1.svg", "exec_umx2.svg", "exec_umx3.svg", base_path=gf.icon_path, parent=self)
-        btnHideAllInVb2 = my_w.CustomPicButton("hide_v2_1.svg", "hide_v2_2.svg", "hide_v2_3.svg", base_path=gf.icon_path, parent=self)
+        btnExecutePlugins = my_w.CustomPicButton("imported_plgin1.svg", "imported_plgin2.svg", "imported_plgin3.svg", base_path=gf.icon_path, parent=self)
+        btnExecuteSavedActionFlows = my_w.CustomPicButton("exec_umx1.svg", "exec_umx2.svg", "exec_umx3.svg", base_path=gf.icon_path, parent=self)
+        btnHideAllInV2 = my_w.CustomPicButton("hide_v2_1.svg", "hide_v2_2.svg", "hide_v2_3.svg", base_path=gf.icon_path, parent=self)
         btnHideSelectedItem = my_w.CustomPicButton("hide1.svg", "hide2.svg", "hide3.svg", base_path=gf.icon_path, parent=self)
         btnHideRightAxis = my_w.CustomPicButton("HideShow_R_Ax1.svg", "HideShow_R_Ax2.svg", "HideShow_R_Ax3.svg", base_path=gf.icon_path, parent=self)
         btnPause = my_w.CustomPicButton("pause1.svg", "pause2.svg", "pause3.svg", base_path=gf.icon_path, parent=self)
-        btnAddCustomName = my_w.CustomPicButton("name1.svg", "name2.svg", "name3.svg", base_path=gf.icon_path, parent=self)
+        btnUpdateCustomName = my_w.CustomPicButton("name1.svg", "name2.svg", "name3.svg", base_path=gf.icon_path, parent=self)
+        btnSelectWindow = my_w.CustomPicButton("window1.svg", "window2.svg", "window3.svg", base_path=gf.icon_path, parent=self)
+        # 特殊ボタン
+        btnImportProcedures = my_w.CustomPicButton("exec_umx1.svg", "exec_umx2.svg", "exec_umx3.svg", base_path=gf.icon_path, parent=self)
+        btnImportProcedures.setToolTip("import Action Flow")
+        btnExportProcedures = my_w.CustomPicButton("export_umx1.svg", "export_umx2.svg", "export_umx3.svg", base_path=gf.icon_path, parent=self)
+        btnExportProcedures.setToolTip("export Action Flow")
         ##
         size = (75, 35)
         btnRUN = QPushButton("EXECUTE\n▶") # my_w.CustomPicButton("run_action1.svg", "run_action2.svg", "run_action3.svg" ,base_path=gf.icon_path, parent=self)
@@ -113,10 +133,26 @@ class BatchProcessingWindow(QWidget):
         # 右部バッチエリア
         self.process_layout = my_w.ClickableLayout(parent=self)
         # 上部ファイルパスレイアウト
-        batch_path_selection_layout = QHBoxLayout()
-        batch_path_selection_layout.addWidget(QLabel("folder path"))
-        batch_path_selection_layout.addWidget(self.path_entry)
-        batch_path_selection_layout.addWidget(btnSetPath)
+
+        # batch_path_selection_layout = QHBoxLayout()
+        # batch_path_selection_layout.addWidget(QLabel("folder path"))
+        # batch_path_selection_layout.addWidget(self.path_entry)
+        # batch_path_selection_layout.addWidget(self.cmbExt)
+        # batch_path_selection_layout.addWidget(btnSetPath)
+
+        cmb_ext_layout = QHBoxLayout()
+        cmb_ext_layout.setContentsMargins(0,0,0,0)
+        cmb_ext_layout.setSpacing(0)
+        cmb_ext_layout.addWidget(self.cmbExt)
+        cmb_ext_layout.addStretch(1)
+        batch_path_selection_layout = QGridLayout()
+        batch_path_selection_layout.setSpacing(5)
+        batch_path_selection_layout.addWidget(QLabel("folder path"), 0, 0)
+        batch_path_selection_layout.addWidget(self.path_entry, 0, 1)
+        batch_path_selection_layout.addWidget(btnSetPath, 0, 2)
+        batch_path_selection_layout.addWidget(QLabel("extension(s)"), 1, 0)
+        batch_path_selection_layout.addLayout(cmb_ext_layout, 1, 1)
+
         # 左部ツールレイアウト
         tool_layout = QFormLayout()
         tool_layout.setContentsMargins(5,5,5,5)
@@ -128,44 +164,48 @@ class BatchProcessingWindow(QWidget):
         tool_layout.addRow(btnExportSvg, QLabel(" capture current spectrum"))
         tool_layout.addRow(btnSaveTarget, QLabel(" save target (crosshair)"))
         tool_layout.addRow(btnExportData, QLabel(" export data"))
+        tool_layout.addRow(btnTrashFiles, QLabel(" trash files"))
         tool_layout.addRow(gf.QRichLabel("\n--- Preprocess Actions ---", font=gf.boldFont))
-        tool_layout.addRow(btnCosmicRayRemoval, QLabel(" cosmic ray removal"))
-        tool_layout.addRow(btnNoiseFilterPCA, QLabel(" PCA based noise filter"))
+        tool_layout.addRow(btnCRRMaster, QLabel(" cosmic ray removal"))
+        tool_layout.addRow(btnNRMaster, QLabel(" PCA based noise filter"))
         tool_layout.addRow(gf.QRichLabel("\n--- Data Actions 1 ---", font=gf.boldFont))
-        tool_layout.addRow(btnSetPOI, QLabel(" set position of interest"))
-        tool_layout.addRow(btnGoToPOI, QLabel(" go to position of interest"))
-        tool_layout.addRow(btnSignalIntensity, QLabel(" signal intensity"))
-        tool_layout.addRow(btnSignalToBaseline, QLabel(" signal to baseline"))
-        tool_layout.addRow(btnSianglToHorizontalBaseline, QLabel(" signal to horizontal line"))
-        tool_layout.addRow(btnSignalToAxis, QLabel(" signal to axis"))
+        tool_layout.addRow(btnPOISettings, QLabel(" set position of interest"))
+        tool_layout.addRow(btnGoToPositionOfInterest, QLabel(" go to position of interest"))
+        tool_layout.addRow(btnExecuteSignalIntensity, QLabel(" signal intensity"))
+        tool_layout.addRow(btnExecuteSignalToBaseline, QLabel(" signal to baseline"))
+        tool_layout.addRow(btnExecuteSianglToHBaseline, QLabel(" signal to horizontal line"))
+        tool_layout.addRow(btnExecuteSignalToAxis, QLabel(" signal to axis"))
         tool_layout.addRow(btnAddCurrentSpectrum, QLabel(" add current spectrum"))
-        tool_layout.addRow(btnAddSpectrumFromFile, QLabel(" add spectrum from a file"))
-        tool_layout.addRow(btnAddCustomName, QLabel(" add custom name to added content"))
+        tool_layout.addRow(btnAddSpectrumFromFile, QLabel(" add spectrum from a file (dynamic)"))
+        tool_layout.addRow(btnAddSpectraFromObj, QLabel(" add spectrum from a file (static)"))
+        tool_layout.addRow(btnUpdateCustomName, QLabel(" set custom name to added content"))
         tool_layout.addRow(gf.QRichLabel("\n--- Data Actions 2 ---", font=gf.boldFont))
-        tool_layout.addRow(btnSpectrumSubtraction, QLabel(" spectrum subtraction"))
-        tool_layout.addRow(btnUMX, QLabel(" spectrum unmixing"))
-        tool_layout.addRow(btnImportedPlugins, QLabel(" imported plugins"))
-        tool_layout.addRow(btnExecuteProcedures, QLabel(" execute procedures"))
+        tool_layout.addRow(btnExecuteSpectrumLinearSubtraction, QLabel(" spectrum subtraction"))
+        tool_layout.addRow(btnExecuteUnmixing, QLabel(" spectrum unmixing"))
+        tool_layout.addRow(btnExecutePlugins, QLabel(" imported plugins"))
+        tool_layout.addRow(btnExecuteSavedActionFlows, QLabel(" execute Action Flow"))
         tool_layout.addRow(btnPause, QLabel("pause"))
         tool_layout.addRow(gf.QRichLabel("\n--- View Actions ---", font=gf.boldFont))
-        tool_layout.addRow(btnSelectMapImage, QLabel(" select from added map images"))
-        tool_layout.addRow(btnSelectSpectrum, QLabel(" select from added spectra"))
-        tool_layout.addRow(btnHideAllInVb2, QLabel(" hide all items in view box 2"))
+        tool_layout.addRow(btnSelectAddedItem, QLabel(" select from added items"))
         tool_layout.addRow(btnHideSelectedItem, QLabel(" hide selected item"))
+        tool_layout.addRow(btnHideAllInV2, QLabel(" hide all items in view box 2"))
+        tool_layout.addRow(btnHideRightAxis, QLabel("hide right axis for view box 2"))
         tool_layout.addRow(btnShowSpectrumWithMaxInt, QLabel(" show spectrum at max intensity"))
-        tool_layout.addRow(btnSetSpcRange, QLabel(" set spectrum range"))
+        tool_layout.addRow(btnSetSpectrumRange, QLabel(" set spectrum range"))
         tool_layout.addRow(btnSetMapImageContrast, QLabel(" set map image contrast"))
         tool_layout.addRow(btnSetWindowSize, QLabel(" set window size"))
-        tool_layout.addRow(btnHideRightAxis, QLabel("hide right axis for view box 2"))
+        tool_layout.addRow(btnSelectWindow, QLabel(" select window"))
         # execute
         execute_layout = QHBoxLayout()
         execute_layout.setContentsMargins(0,0,0,0)
         execute_layout.setSpacing(0)
+        execute_layout.addWidget(btnImportProcedures)
+        execute_layout.addWidget(btnExportProcedures)
         execute_layout.addStretch(1)
         execute_layout.addWidget(btnMoveUp)
         execute_layout.addWidget(btnRemove)
         execute_layout.addWidget(btnMoveDown)
-        execute_layout.addSpacerItem(my_w.CustomSpacer(width=15))
+        execute_layout.addSpacerItem(my_w.CustomSpacer(width=5))
         execute_layout.addWidget(btnRUN)
         # layout
         tools_inside_widget = QWidget()
@@ -176,6 +216,7 @@ class BatchProcessingWindow(QWidget):
         tools_scroll_area.setWidget(tools_inside_widget)
         tools_scroll_area.focusInEvent = self.focusInEvent
         tools_area_layout = QVBoxLayout()
+        tools_area_layout.setContentsMargins(0,0,0,0)
         tools_area_layout.addWidget(gf.QRichLabel("Available Actions (click icon)", font=gf.boldFont))
         tools_area_layout.addWidget(tools_scroll_area)
         # 右部バッチエリア
@@ -189,52 +230,73 @@ class BatchProcessingWindow(QWidget):
         batch_scroll_area.setWidget(inside_widget)
         batch_scroll_area.focusInEvent = self.focusInEvent
         batch_area_layout = QVBoxLayout()
-        # batch_area_layout.setSpacing(5)
+        batch_area_layout.setContentsMargins(0,0,0,0)
         batch_area_layout.addWidget(gf.QRichLabel("Action Flow for every *.spc files", font=gf.boldFont))
         batch_area_layout.addWidget(batch_scroll_area)
         batch_area_layout.addLayout(execute_layout)
+        # スプリッター
+        tools_area_widget = QWidget()
+        tools_area_widget.setLayout(tools_area_layout)
+        batch_area_widget = QWidget()
+        batch_area_widget.setLayout(batch_area_layout)
+        sub_area = QSplitter(Qt.Horizontal)
+        policy = sub_area.sizePolicy()
+        policy.setVerticalStretch(10)
+        sub_area.setSizePolicy(policy)
+        sub_area.addWidget(tools_area_widget)
+        sub_area.addWidget(batch_area_widget)
         # 全体
         sub_layout = QHBoxLayout()
-        sub_layout.addLayout(tools_area_layout)
-        sub_layout.addLayout(batch_area_layout)
+        sub_layout.setSpacing(0)
+        sub_layout.addWidget(sub_area)
         layout = QVBoxLayout()
         layout.addLayout(batch_path_selection_layout)
         layout.addLayout(sub_layout)
         # self.setMinimumSize(gf.batch_window_min_width, gf.batch_window_min_height)
-        self.setLayout(layout)
+        # self.setLayout(layout)
+        # tab barが現れるのを防ぐため、QWidget ではなく QMainWindow で window を作成し、TabBarを消去した。
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
+        self.setUnifiedTitleAndToolBarOnMac(True)
         # イベントコネクト
         btnOpenWindow.clicked.connect(self.btnOpenWindow_clicked)
-        btnCloseWindow.clicked.connect(self.btnCloseW_clicked)
+        btnCloseWindow.clicked.connect(self.btnCloseWindow_clicked)
         btnSetPath.clicked.connect(self.btnSetPath_clicked)
-        btnSetPOI.clicked.connect(self.btnSetPOI_clicked)
-        btnGoToPOI.clicked.connect(self.btnGoToPOI_clicked)
-        btnSetSpcRange.clicked.connect(self.btnSetSpcRange_clicked)
+        btnPOISettings.clicked.connect(self.btnPOISettings_clicked)
+        btnGoToPositionOfInterest.clicked.connect(self.btnGoToPositionOfInterest_clicked)
+        btnSetSpectrumRange.clicked.connect(self.btnSetSpectrumRange_clicked)
         btnShowSpectrumWithMaxInt.clicked.connect(self.btnShowSpectrumWithMaxInt_clicked)
-        btnSelectMapImage.clicked.connect(self.btnSelectMapImage_clicked)
-        btnSelectSpectrum.clicked.connect(self.btnSelectSpectrum_clicked)
+        btnSelectAddedItem.clicked.connect(self.btnSelectAddedItem_clicked)
         btnSetMapImageContrast.clicked.connect(self.btnSetMapImageContrast_clicked)
-        btnSignalIntensity.clicked.connect(self.btnSignalIntensity_clicked)
-        btnSignalToBaseline.clicked.connect(self.btnSignalToBaseline_clicked)
-        btnSianglToHorizontalBaseline.clicked.connect(self.SianglToHorizontalBaseline_clicked)
-        btnSignalToAxis.clicked.connect(self.btnSignalToAxis_clicked)
+        btnExecuteSignalIntensity.clicked.connect(self.btnExecuteSignalIntensity_clicked)
+        btnExecuteSignalToBaseline.clicked.connect(self.btnExecuteSignalToBaseline_clicked)
+        btnExecuteSianglToHBaseline.clicked.connect(self.btnExecuteSianglToHBaseline_clicked)
+        btnExecuteSignalToAxis.clicked.connect(self.btnExecuteSignalToAxis_clicked)
         btnAddCurrentSpectrum.clicked.connect(self.btnAddCurrentSpectrum_clicked)
         btnAddSpectrumFromFile.clicked.connect(self.btnAddSpectrumFromFile_clicked)
-        btnAddCustomName.clicked.connect(self.btnAddCustomName_clicked)
-        btnSpectrumSubtraction.clicked.connect(self.btnSpectrumSubtraction_clicked)
-        btnUMX.clicked.connect(self.btnUMX_clicked)
+        btnAddSpectraFromObj.clicked.connect(self.btnAddSpectraFromObj_clicked)
+        btnUpdateCustomName.clicked.connect(self.btnUpdateCustomName_clicked)
+        btnExecuteSpectrumLinearSubtraction.clicked.connect(self.btnExecuteSpectrumLinearSubtraction_clicked)
+        btnExecuteUnmixing.clicked.connect(self.btnExecuteUnmixing_clicked)
         # btnExportImages.clicked.connect(self.btnExportImages_clicked)
         btnExportSvg.clicked.connect(self.btnExportSvg_clicked)
         btnSaveTarget.clicked.connect(self.btnSaveTarget_clicked)
-        btnCosmicRayRemoval.clicked.connect(self.btnCosmicRayRemoval_clicked)
-        btnNoiseFilterPCA.clicked.connect(self.btnNoiseFilterPCA_clicked)
+        btnCRRMaster.clicked.connect(self.btnCRRMaster_clicked)
+        btnNRMaster.clicked.connect(self.btnNRMaster_clicked)
         btnSetWindowSize.clicked.connect(self.btnSetWindowSize_clicked)
+        btnSelectWindow.clicked.connect(self.btnSelectWindow_clicked)
         btnExportData.clicked.connect(self.btnExportData_clicked)
-        btnImportedPlugins.clicked.connect(self.btnImportedPlugins_clicked)
-        btnExecuteProcedures.clicked.connect(self.btnExecuteProcedures_clicked)
-        btnHideAllInVb2.clicked.connect(self.btnHideAllInVb2_clicked)
+        btnTrashFiles.clicked.connect(self.btnTrashFiles_clicked)
+        btnExecutePlugins.clicked.connect(self.btnExecutePlugins_clicked)
+        btnExecuteSavedActionFlows.clicked.connect(self.btnExecuteSavedActionFlows_clicked)
+        btnHideAllInV2.clicked.connect(self.btnHideAllInV2_clicked)
         btnHideSelectedItem.clicked.connect(self.btnHideSelectedItem_clicked)
         btnHideRightAxis.clicked.connect(self.btnHideRightAxis_clicked)
         btnPause.clicked.connect(self.btnPause_clicked)
+        # 特殊ボタン
+        btnExportProcedures.clicked.connect(self.btnExportProcedures_clicked)
+        btnImportProcedures.clicked.connect(self.btnImportProcedures_clicked)
         btnRUN.clicked.connect(self.btnRUN_clicked)
         btnRemove.clicked.connect(self.btnRemove_clicked)
         btnMoveUp.clicked.connect(self.btnMoveUp_clicked)
@@ -243,108 +305,135 @@ class BatchProcessingWindow(QWidget):
         self.parent.focusChanged(self)
     def focusOutEvent(self, event):
         pass
+    def dragEnterEvent(self, event):
+        event.accept()
+    def dropEvent(self, event):
+        mimeData = event.mimeData()
+        for mimetype in mimeData.formats():
+            if mimetype == "text/uri-list":
+                url_byte = mimeData.data(mimetype).data()
+                file_path_list = parse.unquote(url_byte.decode()).replace('file://', '').replace('\r', '').strip().split("\n")
+                if len(file_path_list) > 1:
+                    warning_popup = popups.WarningPopup("Multiple items cannot be loaded.")
+                    warning_popup.exec_()
+                    return
+                file_path = file_path_list[0]
+                if file_path.endswith(".umx"):
+                    self.btnImportProcedures_clicked(event=None, mode="DragAndDrop", file_path=file_path)
+                else:
+                    warning_popup = popups.WarningPopup("Only '.umx' file is supported.")
+                    warning_popup.exec_()
+                    return
     # プロセス系ボタン
     def btn_clicked(func):
-        def _wrapper(self, *args, **kwargs):
-            each_layout, object_name = func(self, *args, **kwargs)
+        def _wrapper(self, event, **kwargs):
+            each_layout, object_name = func(self)
             each_layout.setObjectName(object_name)
             each_layout.setStyleSheet("QWidget#%s{border: 1px solid gray; background-color: lightGray}"%object_name)
             self.process_layout.insertWidget(self.process_layout.count() - 1, each_layout)
+            if event is None:
+                each_layout.import_AF(**kwargs)
         return _wrapper
     @btn_clicked
-    def btnOpenWindow_clicked(self, event):
+    def btnOpenWindow_clicked(self):
         return OpenWindow(parent=self.process_layout, main_window=self.parent), "OW"
     @btn_clicked
-    def btnCloseW_clicked(self, event):
+    def btnCloseWindow_clicked(self):
         return CloseWindow(parent=self.process_layout, main_window=self.parent), "CW"
     @btn_clicked
-    def btnSetPOI_clicked(self, event):
-        return PositionOfInterestSettings(parent=self.process_layout, main_window=self.parent), "CFP"
+    def btnTrashFiles_clicked(self):
+        return TrashFiles(parent=self.process_layout, main_window=self.parent), "TF"
     @btn_clicked
-    def btnGoToPOI_clicked(self, event):
-        return GoToPositionOfInterest(parent=self.process_layout, main_window=self.parent), "CFP"
+    def btnPOISettings_clicked(self):
+        return POISettings(parent=self.process_layout, main_window=self.parent), "POI"
     @btn_clicked
-    def btnSetSpcRange_clicked(self, event):
+    def btnGoToPositionOfInterest_clicked(self):
+        return GoToPositionOfInterest(parent=self.process_layout, main_window=self.parent), "GPI"
+    @btn_clicked
+    def btnSetSpectrumRange_clicked(self):
         return SetSpectrumRange(parent=self.process_layout, main_window=self.parent), "SSR"
     @btn_clicked
-    def btnShowSpectrumWithMaxInt_clicked(self, event):
+    def btnShowSpectrumWithMaxInt_clicked(self):
         return ShowSpectrumWithMaxInt(parent=self.process_layout, main_window=self.parent), "SMS"
     @btn_clicked
-    def btnSelectMapImage_clicked(self, event):
-        return SelectMapImage(parent=self.process_layout, main_window=self.parent), "SMI"
+    def btnSelectAddedItem_clicked(self):
+        return SelectAddedItem(parent=self.process_layout, main_window=self.parent), "SSC"
     @btn_clicked
-    def btnSelectSpectrum_clicked(self, event):
-        return SelectSpectrum(parent=self.process_layout, main_window=self.parent), "SSC"
-    @btn_clicked
-    def btnSetMapImageContrast_clicked(self, event):
+    def btnSetMapImageContrast_clicked(self):
         return SetMapImageContrast(parent=self.process_layout, main_window=self.parent), "SIC"
     @btn_clicked
-    def btnSignalIntensity_clicked(self, event):
-        return SignalIntensity(parent=self.process_layout, main_window=self.parent), "SINT"
+    def btnExecuteSignalIntensity_clicked(self):
+        return ExecuteSignalIntensity(parent=self.process_layout, main_window=self.parent), "SINT"
     @btn_clicked
-    def btnSignalToBaseline_clicked(self, event):
-        return SignalToBaseline(parent=self.process_layout, main_window=self.parent), "STB"
+    def btnExecuteSignalToBaseline_clicked(self):
+        return ExecuteSignalToBaseline(parent=self.process_layout, main_window=self.parent), "STB"
     @btn_clicked
-    def SianglToHorizontalBaseline_clicked(self, event):
-        return SianglToHorizontalBaseline(parent=self.process_layout, main_window=self.parent), "STHB"
+    def btnExecuteSianglToHBaseline_clicked(self):
+        return ExecuteSianglToHBaseline(parent=self.process_layout, main_window=self.parent), "STHB"
     @btn_clicked
-    def btnSignalToAxis_clicked(self, event):
-        return SignalToAxis(parent=self.process_layout, main_window=self.parent), "STA"
+    def btnExecuteSignalToAxis_clicked(self):
+        return ExecuteSignalToAxis(parent=self.process_layout, main_window=self.parent), "STA"
     @btn_clicked
-    def btnAddCurrentSpectrum_clicked(self, event):
+    def btnAddCurrentSpectrum_clicked(self):
         return AddCurrentSpectrum(parent=self.process_layout, main_window=self.parent), "ACS"
     @btn_clicked
-    def btnAddSpectrumFromFile_clicked(self, event):
+    def btnAddSpectrumFromFile_clicked(self):
         return AddSpectrumFromFile(parent=self.process_layout, main_window=self.parent), "ASF"
     @btn_clicked
-    def btnAddCustomName_clicked(self, event):
-        return AddCustomName(parent=self.process_layout, main_window=self.parent), "ACN"
+    def btnAddSpectraFromObj_clicked(self):
+        return AddSpectraFromObj(parent=self.process_layout, main_window=self.parent), "ASF"
     @btn_clicked
-    def btnSpectrumSubtraction_clicked(self, event):
-        return SpectrumSubtraction(parent=self.process_layout, main_window=self.parent), "SSB"
+    def btnUpdateCustomName_clicked(self):
+        return UpdateCustomName(parent=self.process_layout, main_window=self.parent), "ACN"
     @btn_clicked
-    def btnUMX_clicked(self, event):
-        return BatchUnmixing(parent=self.process_layout, main_window=self.parent), "UMX"
+    def btnExecuteSpectrumLinearSubtraction_clicked(self):
+        return ExecuteSpectrumLinearSubtraction(parent=self.process_layout, main_window=self.parent), "SSB"
+    @btn_clicked
+    def btnExecuteUnmixing_clicked(self):
+        return ExecuteUnmixing(parent=self.process_layout, main_window=self.parent), "UMX"
     # @btn_clicked
-    # def btnExportImages_clicked(self, event):
+    # def btnExportImages_clicked(self):
     #     return ExportImages(parent=self.process_layout, main_window=self.parent), "SI"
     @btn_clicked
-    def btnExportSvg_clicked(self, event):
+    def btnExportSvg_clicked(self):
         return ExportSvg(parent=self.process_layout, main_window=self.parent), "ESG"
     @btn_clicked
-    def btnSaveTarget_clicked(self, event):
+    def btnSaveTarget_clicked(self):
         return SaveTarget(parent=self.process_layout, main_window=self.parent), "SS"
     @btn_clicked
-    def btnCosmicRayRemoval_clicked(self, event):
-        return CosmicRayRemoval(parent=self.process_layout, main_window=self.parent), "CRR"
+    def btnCRRMaster_clicked(self):
+        return CRRMaster(parent=self.process_layout, main_window=self.parent), "CRR"
     @btn_clicked
-    def btnNoiseFilterPCA_clicked(self, event):
-        return NoiseFilterPCA(parent=self.process_layout, main_window=self.parent), "CRR"
+    def btnNRMaster_clicked(self):
+        return NRMaster(parent=self.process_layout, main_window=self.parent), "CRR"
     @btn_clicked
-    def btnSetWindowSize_clicked(self, event):
+    def btnSetWindowSize_clicked(self):
         return SetWindowSize(parent=self.process_layout, main_window=self.parent), "SWS"
     @btn_clicked
-    def btnExportData_clicked(self, event):
+    def btnSelectWindow_clicked(self):
+        return SelectWindow(parent=self.process_layout, main_window=self.parent), "SLW"
+    @btn_clicked
+    def btnExportData_clicked(self):
         return ExportData(parent=self.process_layout, main_window=self.parent), "EXD"
     @btn_clicked
-    def btnImportedPlugins_clicked(self, event):
-        return ImportedPlugins(parent=self.process_layout, main_window=self.parent), "SWS"
+    def btnExecutePlugins_clicked(self):
+        return ExecutePlugins(parent=self.process_layout, main_window=self.parent), "SWS"
     @btn_clicked
-    def btnExecuteProcedures_clicked(self, event):
-        return ExecuteProcedures(parent=self.process_layout, main_window=self.parent), "EXP"
+    def btnExecuteSavedActionFlows_clicked(self):
+        return ExecuteSavedActionFlows(parent=self.process_layout, main_window=self.parent), "EXP"
     @btn_clicked
-    def btnHideAllInVb2_clicked(self, event):
-        return HideAllInVb2(parent=self.process_layout, main_window=self.parent), "HV2"
+    def btnHideAllInV2_clicked(self):
+        return HideAllInV2(parent=self.process_layout, main_window=self.parent), "HV2"
     @btn_clicked
-    def btnHideSelectedItem_clicked(self, event):
+    def btnHideSelectedItem_clicked(self):
         return HideSelectedItem(parent=self.process_layout, main_window=self.parent), "HSI"
     @btn_clicked
-    def btnHideRightAxis_clicked(self, event):
+    def btnHideRightAxis_clicked(self):
         return HideRightAxis(parent=self.process_layout, main_window=self.parent), "HRA"
     @btn_clicked
-    def btnPause_clicked(self, event):
+    def btnPause_clicked(self):
         return Pause(parent=self.process_layout, main_window=self.parent), "PUS"
-    # その他のボタン押された場合
+    # 特殊ボタンアクション
     def btnSetPath_clicked(self, event):
         cur_text = self.path_entry.text()
         if os.path.exists(cur_text):
@@ -354,6 +443,50 @@ class BatchProcessingWindow(QWidget):
         dir_path = QFileDialog.getExistingDirectory(self, 'select folder', new_path)
         if len(dir_path):
             self.path_entry.setText(dir_path)
+    def btnExportProcedures_clicked(self, event):
+        if self.process_layout.count() == 1:
+            warning_popup = popups.WarningPopup("No action is added.")
+            warning_popup.exec_()
+            return
+        # 保存場所   # デフォルトでは上書き保存する想定でのファイル名。
+        # save_path, N = gf.get_save_path(os.path.join(gf.settings["method dir"], self.windowTitle()))
+        save_path = os.path.join(gf.settings["method dir"], self.windowTitle())
+        save_path, file_type = QFileDialog.getSaveFileName(self.parent, 'save as .umx file', save_path, filter="action flow files (*.umx)")
+        if not save_path:
+            return
+        # 保存！
+        procedures = []
+        for process in self.process_layout.get_all_items():
+            # ToolbarLayout の関数として、吐き出される。
+            exported_process = process.export_AF()
+            if exported_process[0] is None:
+                warning_popup = popups.WarningPopup(exported_process[1])
+                warning_popup.exec_()
+                break
+            procedures.append(exported_process)
+        # 中断されなかった場合
+        else:
+            with open(save_path, 'w') as f:
+                json.dump(procedures, f, indent=4)
+            self.setWindowTitle(os.path.basename(save_path))
+        # 中断された場合
+    def btnImportProcedures_clicked(self, event=None, mode=None, **kwargs):
+        if mode is None:
+            file_path, file_type = QFileDialog.getOpenFileName(self, 'Select spctrum file', gf.settings["method dir"], filter="action flow file (*.umx)")
+        elif mode == "DragAndDrop":
+            file_path = kwargs["file_path"]
+        if not file_path:
+            return
+        # 読み込み
+        with open(file_path, 'r') as f:
+            procedures = json.loads(f.read())
+        # self.process_layout に追加
+        for func_name, kwargs in procedures:
+            func = getattr(self, "btn{0}_clicked".format(gf.snake2camel(func_name)))
+            func(event=None, **kwargs)
+        gf.settings["method dir"] = os.path.os.path.dirname(file_path)
+        gf.save_settings_file()
+        self.setWindowTitle(os.path.basename(file_path))
     def btnRemove_clicked(self, event):
         self.process_layout.remove_current_focused_item(new_focus=True)
     def btnMoveUp_clicked(self, event):
@@ -362,31 +495,36 @@ class BatchProcessingWindow(QWidget):
         self.process_layout.moveDown_current_focused_item()
     def btnRUN_clicked(self, event):
         self.parent.temp_variables = {}
-        # 何もない場合
+        # action がない場合
         if self.process_layout.count() == 1:
-            warning_popup = popups.WarningPopup("No action to process.")
+            warning_popup = popups.WarningPopup("No action is added.")
             warning_popup.exec_()
             return
+        # dir_path がない場合
         dir_path = self.path_entry.text()
         if not os.path.exists(dir_path):
             warning_popup = popups.WarningPopup("Folder named '{0}' could not be found.".format(dir_path))
             warning_popup.exec_()
             return
+        # ext がない場合
+        if len(self.cmbExt.currentData()) == 0:
+            warning_popup = popups.WarningPopup("Extensions are not set.")
+            warning_popup.exec_()
+            return
         # ファイルごとに回す
-        spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
+        spc_path_list = []
+        for ext in self.cmbExt.currentData():
+            spc_path_list.extend(glob.glob("{0}/**/{1}".format(dir_path, ext), recursive=True))
         for spc_path in spc_path_list:
-
-            # if spc_path.endswith("_FL_2.spc") or spc_path.endswith("_FL.spc"):
-            #     pass
-            # else:
-            #     continue
-
+            # フォルダはスキップ？
+            if os.path.isdir(spc_path):
+                continue
             # 開いたファイルは、次のプロセスで受け取ることができる
             opened_window = None
-            for idx in range(self.process_layout.count() - 1):
+            for process in self.process_layout.get_all_items():
                 QCoreApplication.processEvents()
                 try:
-                    opened_window, continue_process = self.process_layout.itemAt(idx).widget().procedure(spc_path, opened_window)
+                    opened_window, continue_process = process.procedure(spc_path, opened_window)
                 except:
                     continue_process = traceback.format_exc()
                     break
@@ -408,7 +546,7 @@ class BatchProcessingWindow(QWidget):
             self.parent.temp_variables = {}
             return
         # ループ異常終了時
-        warning_popup = popups.WarningPopup(continue_process + "\nProcess was canceled.")
+        warning_popup = popups.WarningPopup("Error in '{0}' action.\n{1}\n\n{2}\n\nProcess was canceled.".format(process.title, spc_path, continue_process))
         warning_popup.exec_()
         self.parent.temp_variables = {}
         return
@@ -421,6 +559,7 @@ class OpenWindow(my_w.ClickableQWidget):
         self.main_window = main_window
         self.type="OW"
         self.option = {}
+        self.title = "open window"
         # オプション
         self.window_type = QComboBox()
         self.window_type.addItems(["1 spectrum data", "hyperspectral data", "all '*.spc' data", "size unknown hyperspectral data", "filter by file name: None"])
@@ -428,47 +567,51 @@ class OpenWindow(my_w.ClickableQWidget):
         self.window_type.setItemData(self.file_name_filter_idx, "None")
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("open window"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.window_type)
         self.setFixedHeight(gf.process_widget_height)
         # イベントコネクト
         self.window_type.activated.connect(self.item_activated)
     def item_activated(self, event=None):
-        if event == self.file_name_filter_idx:
-            text_settings_popup = popups.TextSettingsPopup(
-                parent=self.parent, 
-                initial_txt=self.window_type.itemData(event), 
-                label="""
-                <p>
-                    Enter regular expression (re.search) to filter by file name.
-                <\p>
-                <p>
-                    Visit <a href=\"https://docs.python.org/3/library/re.html\">Regular expression operations</a> for detailed syntaxes.
-                    <br>
-                <\p>
-                """, 
-                title="file name filter")
-            done = text_settings_popup.exec_()
-            if done == 0:
-                return
-            if text_settings_popup.text() == "":
-                warning_popup = popups.WarningPopup("Enter some string!")
-                warning_popup.exec_()
-                self.item_activated(event=self.file_name_filter_idx)
-                return
-            self.window_type.setItemData(self.file_name_filter_idx, text_settings_popup.text())
-            self.window_type.setItemText(self.file_name_filter_idx, "filter by file name: {0}".format(text_settings_popup.text()))
+        if event != self.file_name_filter_idx:
+            return
+        text_settings_popup = popups.TextSettingsPopup(
+            parent=self.parent, 
+            initial_txt=self.window_type.itemData(event), 
+            label="""
+            <p>
+                Enter regular expression (re.search) to filter by file name.
+            <\p>
+            <p>
+                Visit <a href=\"https://docs.python.org/3/library/re.html\">Regular expression operations</a> for detailed syntaxes.
+                <br>
+            <\p>
+            """, 
+            title="file name filter")
+        done = text_settings_popup.exec_()
+        if done == 0:
+            return
+        if text_settings_popup.text() == "":
+            warning_popup = popups.WarningPopup("Enter some string!")
+            warning_popup.exec_()
+            self.item_activated(event=self.file_name_filter_idx)
+            return
+        self.window_type.setItemData(self.file_name_filter_idx, text_settings_popup.text())
+        self.window_type.setItemText(self.file_name_filter_idx, "filter by file name: {0}".format(text_settings_popup.text()))
     def procedure(self, spc_path=None, opened_window=None):
-        # バイナリを読む（その方が早い？）
-        with open(spc_path, 'rb') as f:
-            f.seek(24, 0)
-            fnsub = struct.unpack("<i", f.read(4))[0]
-            try:
-                f.seek(-10000, 2) # 2: 末尾から読む
-            except:
-                f.seek(0, 0)    # 頭から全て読む（サイズが小さすぎて、10000では足りない場合）
-            matchedObject_list = list(re.finditer(b"\[map_size\]\r\nmap_x=[0-9]+\r\nmap_y=[0-9]+\r\nmap_z=[0-9]+\r\n\[map_size\]\r\n", f.read(), flags=0))
+        # プレサーチ（単一スペクトルチェック）
+        fnsub, matchedObject_list = gf.pre_open_search(spc_path)
+        # 通常ファイルが開かれた場合
+        if matchedObject_list is not None:
+            pass
+        # 特殊ファイルが開かれた場合
+        else:
+            spc_file, traceback = gf.open_spc_spcl(spc_path)
+            if spc_file is None:
+                return None, traceback
+            fnsub = spc_file.fnsub
+            matchedObject_list = []
         # サイズ未設定の hyper spectrum data のみを開く場合
         if self.window_type.currentText() == "size unknown hyperspectral data":
             # サイズ指定されていない map の場合、開く
@@ -485,13 +628,17 @@ class OpenWindow(my_w.ClickableQWidget):
             if file_name_matched is None:
                 return None, "skip"
         # それ以外の場合、サイズ未指定であれば、注意喚起
-        if (len(matchedObject_list) == 0) & (fnsub > 1):
-            warning_popup = popups.WarningPopup("The file '{0}' may be opened for the first time and may require size settings.".format(spc_path), title="WARNING", p_type="Bool")
+        main_window = self.parent.parent.parent
+        do_not_show_again = main_window.temp_variables.setdefault("DNSA_open_window", False)
+        if (len(matchedObject_list) == 0) & (fnsub > 1) & (not do_not_show_again):
+            warning_popup = popups.WarningPopup("The file '{0}' may be opened for the first time and may require size settings. Do you want to continue?".format(spc_path), title="WARNING", p_type="YesToAll")
             done = warning_popup.exec_()
             if done == 16384:   # YES
                 pass
+            elif done == 32768: # YES to ALL
+                main_window.temp_variables["DNSA_open_window"] = True
             else:   # NO
-                return None, "Error in opening '{0}'. It may be opened for the first time and require size settings before any processes.".format(spc_path)
+                return None, "The process to open '{0}' was canceled. It may be opened for the first time and require size settings before any processes.".format(spc_path)
         # マッチするもののみを開く
         if (((fnsub > 1) and (self.window_type.currentText() == "hyperspectral data")) 
         or ((fnsub == 1) and (self.window_type.currentText() == "1 spectrum data")) 
@@ -502,23 +649,143 @@ class OpenWindow(my_w.ClickableQWidget):
         # ターゲットの window でない場合は、閉じて次へ
         else:
             return None, "skip"
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"window_type":self.window_type.currentText()}
+        if self.window_type.currentIndex() == self.file_name_filter_idx:
+            kwargs["itemData"] = self.window_type.currentData()
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        window_type = kwargs.get("window_type", self.window_type.currentText())
+        if window_type.startswith("filter by file name:"):
+            filter_name = kwargs.get("itemData", "None")
+            self.window_type.setCurrentIndex(self.file_name_filter_idx)
+            self.window_type.setItemData(self.file_name_filter_idx, filter_name)
+            self.window_type.setItemText(self.file_name_filter_idx, "filter by file name: {0}".format(filter_name))
+        else:
+            self.window_type.setCurrentText(window_type)
 class CloseWindow(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "CW"
         self.option = {}
+        self.title = "close window"
+        # オプション
+        self.cmb = QComboBox()
+        self.cmb.addItems(["current focused", "all window"])
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("close window"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
+        self.layout.addWidget(QLabel("target: "))
+        self.layout.addWidget(self.cmb)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'close window' action. No window is opened."
-        opened_window.close()
+            return None, "No window is opened."
+        opened_window.toolbar_layout.close_window(mode="macro", target=self.cmb.currentText())
         return None, "continue"
-class PositionOfInterestSettings(my_w.ClickableQWidget):
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"target":self.cmb.currentText()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        target = kwargs.get("target", "current focused")
+        self.cmb.setCurrentText(target)
+class TrashFiles(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "TF"
+        self.option = {}
+        self.title = "trash files"
+        # オプション
+        self.cmb_type = QComboBox()
+        self.cmb_type.addItems(["files to keep", "files to trash"])
+        self.target = QLineEdit()
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel(self.title))
+        self.layout.addStretch(1)
+        self.layout.addWidget(self.cmb_type)
+        self.layout.addWidget(self.target)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        # 同じフォルダに２つ以上 spc ファイルがあり、既に削除されている場合はスキップ
+        if not os.path.exists(spc_path):
+            return None, "skip"
+        main_window = self.parent.parent.parent
+        dir_path, file_name, file_name_wo_ext = gf.file_name_processor(spc_path)
+        # 次のループでも使い情報を格納
+        processed_dir = main_window.temp_variables.setdefault("PD_trash_files", [])
+        do_not_show_again = main_window.temp_variables.setdefault("DNSA_trash_files", False)
+        trash_dir = main_window.temp_variables.setdefault("TD_trash_files", None)
+        if dir_path not in processed_dir:
+            processed_dir.append(dir_path)
+        else:
+            return None, "skip"
+        # 同じフォルダ内のファイルを探索
+        is_files_to_trash_selected = self.cmb_type.currentText() == "files to trash"
+        all_path_list = glob.glob("{0}/*".format(dir_path), recursive=False)
+        all_file_names = []
+        is_remove_target = []
+        for path_name in all_path_list:
+            # フォルダはスキップ
+            if os.path.isdir(path_name):
+                continue
+            file_name = os.path.basename(path_name)
+            matched_object = re.search(self.target.text(), file_name)
+            all_file_names.append(file_name)
+            if (matched_object is not None) == is_files_to_trash_selected:
+                is_remove_target.append(True)
+            else:
+                is_remove_target.append(False)
+        # ポップアップ
+        if not do_not_show_again:
+            def btnOK_DNSA_clicked(self_, event):
+                main_window.temp_variables["DNSA_trash_files"] = True
+                self_.done(1)
+            message_popup = popups.MessageDialogWithCkbxes(
+                message="Checked files will be moved to newly created 'trash' folder.", 
+                p_type="Custom", 
+                ckbx_names=all_file_names, 
+                is_checked_list=is_remove_target, 
+                btn_names=["btnCancel", "btnOK_DNSA"], 
+                btn_funcs=[None, btnOK_DNSA_clicked], 
+                btn_labels = ["Cancel", "OK (do not show again)"]
+                )
+            done = message_popup.exec_()
+            all_file_names = []
+            is_remove_target = []
+            for ckbx in message_popup.ckbx_list:
+                all_file_names.append(ckbx.text())
+                is_remove_target.append(ckbx.isChecked())
+        else:
+            done = 1
+        if done == 0:
+            return None, "Aborted by user."
+        # 削除フォルダ作製
+        if trash_dir is None:
+            master_dir = self.parent.parent.path_entry.text()
+            trash_dir, N = gf.get_save_dir(os.path.join(master_dir, "trash"))
+            os.mkdir(trash_dir)
+            main_window.temp_variables["TD_trash_files"] = trash_dir
+        # 削除（移動）
+        for file_name, remove in zip(all_file_names, is_remove_target):
+            if remove:
+                # 同盟ファイル・フォルダがある場合、rename しながら移動
+                file_name_in_trash, N = gf.get_save_path(os.path.join(trash_dir, file_name))
+                shutil.move(os.path.join(dir_path, file_name), file_name_in_trash)
+        return None, "continue"
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"target_type":self.cmb_type.currentText(), "target":self.target.text()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.cmb_type.setCurrentText(kwargs["target_type"])
+        self.target.setText(kwargs["target"])
+class POISettings(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -527,18 +794,34 @@ class PositionOfInterestSettings(my_w.ClickableQWidget):
         self.continue_process = None
         self.opened_window = None
         # コンテンツ
+        self.ckbx_ask = QCheckBox("pause")
+        self.ckbx_ask.setChecked(True)
         self.default_name = QLineEdit("default_name")
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.default_name)
+        self.layout.addWidget(QLabel("  "))
+        self.layout.addWidget(self.ckbx_ask)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'set position of interest' action. No window is opened."
+            return None, "No window is opened."
         if opened_window.window_type != "ms":
             return None, "Invalid window type."
+        if not self.ckbx_ask.isChecked():
+            poi_key = self.default_name.text()
+            x, y = opened_window.spectrum_widget.cur_x, opened_window.spectrum_widget.cur_y
+            # 名前が重複する場合は削除
+            if poi_key in opened_window.spectrum_widget.spc_file.log_dict[b"point_of_interest_dict"].keys():
+                poi_idx = opened_window.parent.poi_manager.get_poi_idx(poi_key=poi_key)
+                opened_window.parent.poi_manager.poi_layout.set_focus(idx=poi_idx)
+                opened_window.parent.poi_manager.btn_poi_del_clicked()
+                # focus すると、スペクトルの場所が移動してしまうので。
+                opened_window.toolbar_layout.set_spectrum_and_crosshair(x, y)
+            log = opened_window.parent.poi_manager.execute_poi_add_fm_macro(poi_key=poi_key, poi_data=(x, y))
+            return opened_window, log
         # イベントループ
         loop = QEventLoop()
         def closeEvent1(self_, event=None):
@@ -561,25 +844,23 @@ class PositionOfInterestSettings(my_w.ClickableQWidget):
         def okEvent():
             # 大元のバイナリファイルを上書き（ついでに、現在の spc_file にpoi_xなども追加します）
             poi_key = poi_settings_popup.get_poi_key()
+            x, y = opened_window.spectrum_widget.cur_x, opened_window.spectrum_widget.cur_y
             if poi_key in opened_window.spectrum_widget.spc_file.log_dict[b"point_of_interest_dict"].keys():
                 warning_popup = popups.WarningPopup("The name '{0}' is already taken. Do you really want to overwrite?".format(poi_key), title="WARNING", p_type="Bool")
                 done = warning_popup.exec_()
                 if done == 16384:   # YES
                     poi_idx = opened_window.parent.poi_manager.get_poi_idx(poi_key=poi_key)
-                    x, y = opened_window.spectrum_widget.cur_x, opened_window.spectrum_widget.cur_y
                     opened_window.parent.poi_manager.poi_layout.set_focus(idx=poi_idx)
                     opened_window.parent.poi_manager.btn_poi_del_clicked()
                     # focus すると、スペクトルの場所が移動してしまうので。
                     opened_window.toolbar_layout.set_spectrum_and_crosshair(x, y)
                 else:   # NO
                     return
-            opened_window.parent.poi_manager.btn_poi_add_clicked()
-            opened_window.parent.poi_manager.poi_layout.set_focus(idx=-2)
-            opened_window.parent.poi_manager.btn_poi_rename_clicked(ask=False, poi_key=poi_key)
+            log = opened_window.parent.poi_manager.execute_poi_add_fm_macro(poi_key=poi_key, poi_data=(x, y))
             # 脱ループ
             loop.exit()
             self.opened_window = opened_window
-            self.continue_process = "continue"        
+            self.continue_process = log
         def skipEvent():
             loop.exit()
             self.opened_window = opened_window
@@ -596,14 +877,14 @@ class PositionOfInterestSettings(my_w.ClickableQWidget):
         # クロスヘア、スペクトル、poi_settings_popup を initial_values にあわせる
         opened_window.toolbar_layout.set_spectrum_and_crosshair(*initial_values)
         # ポップアップ
-        poi_settings_popup = popups.PoiSettingsPopup(parent=opened_window, initial_values=(0,0), labels=("x position", "y position"), title="set point of interest", poi_key="poi1")
+        poi_settings_popup = popups.PoiSettingsPopup(parent=opened_window, initial_values=(0,0), labels=("x position", "y position"), title="set point of interest", poi_key="poi1", skip=True)
         poi_settings_popup.setWindowFlags(Qt.WindowStaysOnTopHint)
         poi_settings_popup.set_spinbox_range((0, x_size-1), "RS1")
         poi_settings_popup.set_spinbox_range((0, y_size-1), "RS2")
         poi_settings_popup.setValues(initial_values)
         poi_settings_popup.set_poi_key(poi_key)
-        opened_window.map_widget.scene().sigMouseClicked.connect(poi_settings_popup.on_map_widget_click)
         # イベントコネクト
+        opened_window.map_widget.scene().sigMouseClicked.connect(poi_settings_popup.on_map_widget_click)
         poi_settings_popup.btnCancel.disconnect()
         poi_settings_popup.btnOK.disconnect()
         poi_settings_popup.btnCancel.clicked.connect(cancelEvent)
@@ -623,11 +904,21 @@ class PositionOfInterestSettings(my_w.ClickableQWidget):
         poi_settings_popup.close()
         ###
         return self.opened_window, self.continue_process
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "default_name":self.default_name.text(), 
+            "pause":self.ckbx_ask.isChecked()
+        }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.default_name.setText(kwargs["default_name"])
+        self.ckbx_ask.setChecked(kwargs.get("pause", True))
 class GoToPositionOfInterest(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.type = "POI"
+        self.type = "GPI"
         self.title = "go to position of interest"
         # コンテンツ
         self.poi_key = QLineEdit("poi_name")
@@ -639,17 +930,15 @@ class GoToPositionOfInterest(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'set position of interest' action. No window is opened."
-        if opened_window.window_type == "ms":
-            poi_key = self.poi_key.text()
-            poi_info = opened_window.toolbar_layout.get_poi_info_from_POI_manager(poi_key=poi_key)
-            if poi_info is None:
-                return None, "Position Of Interest named '{0}' was not found.".format(poi_key)
-            opened_window.toolbar_layout.set_spectrum_and_crosshair(*poi_info.poi_data)
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return None, "Invalid window type."
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.go_to_position_of_interest(poi_key=self.poi_key.text())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"poi_key":self.poi_key.text()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.poi_key.setText(kwargs["poi_key"])
 class ShowSpectrumWithMaxInt(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -657,25 +946,49 @@ class ShowSpectrumWithMaxInt(my_w.ClickableQWidget):
         self.type = "SMS"
         self.title = "show spectrum at max. int."
         self.option = {}
+        # コンテンツ
+        # self.cmb_type = QComboBox()
+        # self.cmb_type.addItems(["all area", "around center"])
+        self.spbx_value = QDoubleSpinBox()
+        self.spbx_value.setMinimum(0)
+        self.spbx_value.setMaximum(1)
+        self.spbx_value.setValue(1)
+        self.spbx_value.setSingleStep(0.1)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
+        # self.layout.addWidget(QLabel("target: "))
+        # self.layout.addWidget(self.cmb_type)
+        self.layout.addWidget(self.spbx_value)
+        self.layout.addWidget(QLabel("(set 1 to target all area)"))
         self.setFixedHeight(gf.process_widget_height)
+        # イベントコネクト
+        # self.spbx_value.hide()
+        # self.cmb_type.currentTextChanged.connect(self.cmb_changed)
+    # def cmb_changed(self, event):
+    #     if event == "all area":
+    #         self.spbx_value.hide()
+    #     elif event == "around center":
+    #         self.spbx_value.show()
+    #     else:
+    #         raise Exception("unknown type: {0}".format(event))
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in '{0}' action. No window is opened.".format(self.title)
-        if opened_window.window_type == "ms":
-            if opened_window.cur_displayed_map_content is None:
-                return None, "Error in '{0}' action.\nImages must be set before showing spectrum with max intensity.".format(self.title)
-            cur_image2d = opened_window.cur_displayed_map_content.item.image2d
-            max_loc = np.unravel_index(np.argmax(cur_image2d), cur_image2d.shape)
-            opened_window.spectrum_widget.replace_spectrum(*max_loc)
-            opened_window.map_widget.set_crosshair(*max_loc)
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return None, "Invalid window type."
+            return None, "No window is opened."
+        # log = opened_window.toolbar_layout.show_spectrum_with_max_int(target=self.cmb_type.currentText(), value=self.spbx_value.value())
+        log = opened_window.toolbar_layout.show_spectrum_with_max_int(value=self.spbx_value.value())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        # kwargs = {"target":self.cmb_type.currentText(), "value":self.spbx_value.value()}
+        kwargs = {"value":self.spbx_value.value()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        target = kwargs.get("target", "all area")
+        value = kwargs.get("value", 1)
+        # self.cmb_type.setCurrentText(target)
+        self.spbx_value.setValue(value)
 # class SelectMapImage(my_w.ClickableQWidget):
 #     def __init__(self, parent=None, main_window=None):
 #         super().__init__(parent)
@@ -695,10 +1008,10 @@ class ShowSpectrumWithMaxInt(my_w.ClickableQWidget):
 #         self.setFixedHeight(gf.process_widget_height)
 #     def procedure(self, spc_path=None, opened_window=None):
 #         if opened_window is None:
-#             return None, "Error in '{0}' action. No window is opened.".format(self.title)
+#             return None, "No window is opened.".format(self.title)
 #         if opened_window.window_type == "ms":
 #             if opened_window.cur_displayed_map_content is None:
-#                 return None, "Error in '{0}' action.\nImages must be set before selection.".format(self.title)
+#                 return None, "Images must be set before selection.".format(self.title)
 #             # ターゲットレイアウトの探索
 #             if self.tgt_txt.text() != "":
 #                 isNotNone_list = [re.search(self.tgt_txt.text(), added_content_map.summary()) is not None for added_content_map in opened_window.toolbar_layout.added_content_map_list]
@@ -723,33 +1036,27 @@ class ShowSpectrumWithMaxInt(my_w.ClickableQWidget):
 #         else:
 #             # opened_window.close()
 #             return None, "Invalid window type."
-class SelectContent(my_w.ClickableQWidget):
-    def __init__(self, parent=None, main_window=None, map_or_spc=None):
+class SelectAddedItem(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.map_or_spc = map_or_spc
-        if self.map_or_spc == "spectrum":
-            self.type = "SSC"
-            self.title = "select from added spectra"
-            self.allowed_windows = ("ms", "s")
-            self.abbriviation = "spc"
-        else:
-            self.type = "SMI"
-            self.title = "select from added maps"
-            self.allowed_windows = ("ms")
-            self.abbriviation = "map"
+        self.type = "SAI"
+        self.title = "select from added items"
         self.option = {}
         # コンテンツ
+        self.map_or_spectrum = QComboBox()
+        self.map_or_spectrum.addItems(["map", "spectrum", "preprocess"])
         self.tgt_cmb = QComboBox()
         self.tgt_cmb.addItems(["index", "target"])
         self.tgt_txt = QLineEdit("")
         self.tgt_idx = QSpinBox()
-        self.tgt_idx.setRange(-1000, 1000)
+        self.tgt_idx.setRange(-999, 999)
         self.tgt_idx.setValue(0)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
+        self.layout.addWidget(self.map_or_spectrum)
         self.layout.addWidget(self.tgt_cmb)
         self.layout.addWidget(self.tgt_txt)
         self.layout.addWidget(self.tgt_idx)
@@ -768,57 +1075,36 @@ class SelectContent(my_w.ClickableQWidget):
             raise Exception("unknown event: {0}".format(event))
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in '{0}' action. No window is opened.".format(self.title)
-        if opened_window.window_type not in self.allowed_windows:
-            return None, "Invalid window type."
-        # spc については、 original spectrum が必ずあるはずなので、不要。
-        if self.map_or_spc == "map":
-            if opened_window.cur_displayed_map_content is None:
-                return None, "Error in '{0}' action.\nImages must be added before selection.".format(self.title)
-        # ターゲットレイアウトの取得
-        target_added_content_list = getattr(opened_window.toolbar_layout, "added_content_{0}_list".format(self.map_or_spc))
-        target_cur_displayed_content = getattr(opened_window, "cur_displayed_{0}_content".format(self.abbriviation))
-        # ターゲットレイアウトの探索
-        if self.tgt_cmb.currentText() == "target":
-            if self.tgt_txt.text() == "":
-                return None, "Error in '{0}' action.\nTarget string is empty!".format(self.title)
-            isNotNone_list = [re.search(self.tgt_txt.text(), added_content.summary()) is not None for added_content in target_added_content_list]
-            N_NotNone = sum(isNotNone_list)
-            if N_NotNone == 0:
-                return None, "No search result for '{0}'".format(self.tgt_txt.text())
-            elif N_NotNone > 1:
-                return None, "Multiple search result for '{0}'".format(self.tgt_txt.text())
-            idx = isNotNone_list.index(True)
-        elif self.tgt_cmb.currentText() == "index":
-            idx = self.tgt_idx.value()
-            LEN = len(target_added_content_list)
-            if (LEN < idx - 1) or (LEN < -idx):
-                return None, "Error in '{0}' action.\nThe index is out of range!".format(self.title)
-        # GUI がいじられた場合でも、エラーが出ないようにする
-        try:
-            target_cur_displayed_content.focus_unfocus(focused=False)
-        except:
-            pass
-        # ターゲットを選択
-        added_content = target_added_content_list[idx]
-        added_content.focus_unfocus(focused=True)
-        try:
-            opened_window.parent.map_spect_table.focus_content(added_content)
-        except:
-            pass
-        return opened_window, "continue"
-class SelectMapImage(SelectContent):
-    def __init__(self, parent=None, main_window=None):
-        super().__init__(parent, main_window, "map")
-class SelectSpectrum(SelectContent):
-    def __init__(self, parent=None, main_window=None):
-        super().__init__(parent, main_window, "spectrum")
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.select_added_item(
+            mode="macro", 
+            map_or_spectrum=self.map_or_spectrum.currentText(), 
+            target_type=self.tgt_cmb.currentText(), 
+            target_text=self.tgt_txt.text(), 
+            target_idx=self.tgt_idx.value()
+            )
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "map_or_spectrum":self.map_or_spectrum.currentText(), 
+            "target_type":self.tgt_cmb.currentText(), 
+            "target_text":self.tgt_txt.text(), 
+            "target_idx":self.tgt_idx.value(), 
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.map_or_spectrum.setCurrentText(kwargs["map_or_spectrum"])
+        self.tgt_cmb.setCurrentText(kwargs["target_type"])
+        self.tgt_txt.setText(kwargs["target_text"])
+        self.tgt_idx.setValue(int(kwargs["target_idx"]))
 class SetSpectrumRange(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "SSR"
         self.option = {}
+        self.title = "set spectrum range"
         # コンテンツ
         self.cmb = QComboBox()
         self.cmb.addItems(["x", "y"])
@@ -836,7 +1122,7 @@ class SetSpectrumRange(my_w.ClickableQWidget):
         self.y_top.addItems(["AUTO"])
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("set spectrum range"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.cmb)
         self.layout.addWidget(self.RS_left)
@@ -864,45 +1150,38 @@ class SetSpectrumRange(my_w.ClickableQWidget):
             raise Exception("unknown kwargs")
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'set spectrum range' action. No window is opened."
-        RS_left = self.RS_left.value()
-        RS_right = self.RS_right.value()
-        x_range, y_range = opened_window.spectrum_widget.plotItem.vb.viewRange()
-        # XRange：なぜか 1 回だけではちゃんと範囲設定されない…
-        if self.cmb.currentText() == "x":
-            while opened_window.spectrum_widget.plotItem.vb.viewRange()[0] != [RS_left, RS_right]:
-                opened_window.spectrum_widget.plotItem.vb.setXRange(min=RS_left, max=RS_right, padding=0)
-        # YRange：なぜか 1 回だけではちゃんと範囲設定されない…
-        elif self.cmb.currentText() == "y":
-            # xData = opened_window.spectrum_widget.master_spectrum.xData
-            # yData = opened_window.spectrum_widget.master_spectrum.yData
-            # local_y_min, local_y_max = gf.get_local_minmax(xData, yData, x_range)
-
-            local_y_min, local_y_max = opened_window.spectrum_widget.get_auto_yRange(x_range)
-            if local_y_min is None:
-                return opened_window, "continue"
-            if self.y_btm.currentText() == "0":
-                btm_value = 0
-                top_value = local_y_max + local_y_min
-            elif self.y_btm.currentText() == "AUTO":
-                btm_value = local_y_min
-                top_value = local_y_max
-            else:
-                raise Exception("unkwon selection")
-            # calc padding
-            pad = opened_window.spectrum_widget.plotItem.vb.suggestPadding(1) # 1 means height
-            p = (top_value - btm_value) * pad
-            btm_padded = btm_value - p
-            top_padded = top_value + p
-            while opened_window.spectrum_widget.plotItem.vb.viewRange()[1] != [btm_padded, top_padded]:
-                opened_window.spectrum_widget.plotItem.vb.setYRange(min=btm_value, max=top_value)
-        return opened_window, "continue"
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.set_spectrum_range(
+            mode="macro", 
+            xy=self.cmb.currentText(), 
+            range_x=[self.RS_left.value(), self.RS_right.value()], 
+            range_y=[self.y_btm.currentText(), self.y_top.currentText()]
+            )
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "xy":self.cmb.currentText(), 
+            "range_x":[self.RS_left.value(), self.RS_right.value()], 
+            "range_y":[self.y_btm.currentText(), self.y_top.currentText()]
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        xy = kwargs["xy"]
+        range_x = kwargs["range_x"]
+        range_y = kwargs["range_y"]
+        self.cmb.setCurrentText(xy)
+        self.RS_left.setValue(range_x[0])
+        self.RS_right.setValue(range_x[1])
+        self.y_btm.setCurrentText(range_y[0])
+        self.y_top.setCurrentText(range_y[1])
 class SetMapImageContrast(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "SIC"
         self.option = {}
+        self.title = "set map image contrast"
         # オプション
         self.range_bottom =  QSpinBox()
         self.range_top =  QSpinBox()
@@ -912,32 +1191,53 @@ class SetMapImageContrast(my_w.ClickableQWidget):
         self.range_top.setMaximum(65535)
         self.range_bottom.setValue(0)
         self.range_top.setValue(65535)
+        self.cmb_bit = QComboBox()
+        self.cmb_bit.addItems(["8bit", "16bit", "32bit"])
+        self.cmb_32bit_idx = 2
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("set map image contrast"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.range_bottom)
         self.layout.addWidget(self.range_top)
+        self.layout.addWidget(self.cmb_bit)
         self.setFixedHeight(gf.process_widget_height)
+        # イベントコネクト
+        self.cmb_bit.currentIndexChanged.connect(self.cmb_bit_changed)
+    def cmb_bit_changed(self, event):
+        if event == self.cmb_32bit_idx:
+            self.range_top.hide()
+            self.range_bottom.hide()
+        else:
+            self.range_top.show()
+            self.range_bottom.show()
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'set map image contrast' action. No window is opened."
-        if opened_window.window_type == "ms":
-            if opened_window.map_widget.ContrastConfigurator is None:
-                return None, "Error in 'set map image contrast' action.\nImages must be created before setting contrast."
-            if not opened_window.map_widget.ContrastConfigurator.FIX:
-                opened_window.map_widget.ContrastConfigurator.btn_fix_pressed()
-            opened_window.map_widget.ContrastConfigurator.setRange(self.range_bottom.value(), self.range_top.value())
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
+            return None, "No window is opened."
+        if opened_window.window_type != "ms":
             return opened_window, "Invalid window type."
-class SignalIntensity(my_w.ClickableQWidget):
+        log = opened_window.toolbar_layout.set_map_image_contrast(contrast_range=(self.range_bottom.value(), self.range_top.value()), bit=self.cmb_bit.currentText())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "contrast_range":[self.range_bottom.value(), self.range_top.value()], 
+            "bit":self.cmb_bit.currentText()
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        contrast_range = kwargs["contrast_range"]
+        bit = kwargs.get("bit", "16bit")
+        self.range_bottom.setValue(contrast_range[0])
+        self.range_top.setValue(contrast_range[1])
+        self.cmb_bit.setCurrentText(bit)
+class ExecuteSignalIntensity(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "STB"
         self.option = {}
+        self.title = "signal intensity"
         # オプション
         self.RS_val =  QSpinBox()
         self.RS_val.setMinimum(0)
@@ -945,25 +1245,28 @@ class SignalIntensity(my_w.ClickableQWidget):
         self.RS_val.setValue(2950)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("signal intensity"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.RS_val)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'signal intensity' action. No window is opened."
-        if opened_window.window_type == "ms":
-            opened_window.toolbar_layout.execute_signal_intensity(ask=False, RS=self.RS_val.value())
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return opened_window, "Invalid window type."
-class SignalToBaseline(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_signal_intensity(mode="macro", RS=self.RS_val.value())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"mode":"macro", "RS":self.RS_val.value()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.RS_val.setValue(kwargs["RS"])
+class ExecuteSignalToBaseline(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "STB"
         self.option = {}
+        self.title = "signal to baseline"
         # オプション
         self.range_bottom =  QSpinBox()
         self.range_top =  QSpinBox()
@@ -975,26 +1278,31 @@ class SignalToBaseline(my_w.ClickableQWidget):
         self.range_top.setValue(2500)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("signal to baseline"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.range_bottom)
         self.layout.addWidget(self.range_top)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'signal to baseline' action. No window is opened."
-        if opened_window.window_type == "ms":
-            opened_window.toolbar_layout.execute_signal_to_baseline(ask=False, RS_set=[self.range_bottom.value(), self.range_top.value()])
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return opened_window, "Invalid window type."
-class SianglToHorizontalBaseline(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_signal_to_baseline(mode="macro", RS_set=[self.range_bottom.value(), self.range_top.value()])
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"mode":"macro", "RS_set":[self.range_bottom.value(), self.range_top.value()]}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        bottom_value, top_value = kwargs["RS_set"]
+        self.range_bottom.setValue(bottom_value)
+        self.range_top.setValue(top_value)
+class ExecuteSianglToHBaseline(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "STHB"
         self.option = {}
+        self.title = "signal to horizontal baseline"
         # オプション
         self.range_bottom =  QSpinBox()
         self.range_top =  QSpinBox()
@@ -1006,26 +1314,31 @@ class SianglToHorizontalBaseline(my_w.ClickableQWidget):
         self.range_top.setValue(2500)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("signal to horizontal baseline"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.range_bottom)
         self.layout.addWidget(self.range_top)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'signal to horizontal baseline' action. No window is opened."
-        if opened_window.window_type == "ms":
-            opened_window.toolbar_layout.execute_signal_to_H_baseline(ask=False, RS_set=[self.range_bottom.value(), self.range_top.value()])
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return opened_window, "Invalid window type."
-class SignalToAxis(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_signal_to_H_baseline(mode="macro", RS_set=[self.range_bottom.value(), self.range_top.value()])
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"mode":"macro", "RS_set":[self.range_bottom.value(), self.range_top.value()]}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        bottom_value, top_value = kwargs["RS_set"]
+        self.range_bottom.setValue(bottom_value)
+        self.range_top.setValue(top_value)
+class ExecuteSignalToAxis(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "STA"
         self.option = {}
+        self.title = "signal to axis"
         # オプション
         self.range_bottom =  QSpinBox()
         self.range_top =  QSpinBox()
@@ -1037,20 +1350,24 @@ class SignalToAxis(my_w.ClickableQWidget):
         self.range_top.setValue(2500)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("signal to axis"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.range_bottom)
         self.layout.addWidget(self.range_top)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'signal to axis' action. No window is opened."
-        if opened_window.window_type == "ms":
-            opened_window.toolbar_layout.execute_signal_to_axis(ask=False, RS_set=[self.range_bottom.value(), self.range_top.value()])
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return opened_window, "Invalid window type."
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_signal_to_axis(mode="macro", RS_set=[self.range_bottom.value(), self.range_top.value()])
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"mode":"macro", "RS_set":[self.range_bottom.value(), self.range_top.value()]}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        bottom_value, top_value = kwargs["RS_set"]
+        self.range_bottom.setValue(bottom_value)
+        self.range_top.setValue(top_value)
 class AddCurrentSpectrum(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -1064,25 +1381,31 @@ class AddCurrentSpectrum(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'add current spectrum' action. No window is opened."
-        if opened_window.window_type != "ms":
-            return None, "Invalid window type."
-        opened_window.toolbar_layout.add_current_spectrum()
-        return opened_window, "continue"
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.add_current_spectrum()
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        pass
 class AddSpectrumFromFile(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "ASF"
-        self.title = "add spectrum from a file"
+        self.title = "add spectrum from a file (d)"
         # コンテンツ
         self.cmb_type = QComboBox()
         self.cmb_type.addItems(["from a file", "target", "target path"])
         self.cmb_type.setItemData(0, "")
         self.cmb_type.setItemData(1, "")
-        self.cmb_type.setItemData(2, "directory_path/regular expression to specify file name(s)")
+        self.cmb_type.setItemData(2, "")
+        self.cmb_type.setItemData(3, "directory_path/regular expression to specify file name(s)")
         self.path_entry = QLineEdit()
         btnSetPath = QPushButton("...")
+        btnSetPath.setFixedWidth(40)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
@@ -1093,6 +1416,7 @@ class AddSpectrumFromFile(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
         # イベントコネクト
         self.cmb_type.currentIndexChanged.connect(self.cmb_type_changed)
+        self.path_entry.textChanged.connect(self.path_entry_changed)
         btnSetPath.clicked.connect(self.btnSetPath_clicked)
     def btnSetPath_clicked(self, event):
         if self.cmb_type.currentText() == "target":
@@ -1113,9 +1437,10 @@ class AddSpectrumFromFile(my_w.ClickableQWidget):
                 <p>
                     Search spc files in the specified directory.
                     <br>
-                    Enter the directory path and the regular expression (re.search) to specify file(s) as follows.
+                    Enter the directory path and the regular expression (re.search) to specify file(s).
                     <br>
-                    (Only the charactor '/' on the far right is recognized as the separator.)
+                    All files contained in the folder specified by characters leading up to the left of the last appeared file separator.
+                    \nwill be recursively collected and searched.
                 <\p>
                 <p>
                     <span style='font-family:Courier'>
@@ -1139,30 +1464,109 @@ class AddSpectrumFromFile(my_w.ClickableQWidget):
             raise Exception("unknown selection: {0}".format(self.cmb_type.currentText()))
     def cmb_type_changed(self, event):
         self.path_entry.setText(self.cmb_type.itemData(event))
+    def path_entry_changed(self, event):
+        self.cmb_type.setItemData(self.cmb_type.currentIndex(), event)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'add current spectrum' action. No window is opened."
-        # ファイルパス取得
-        if self.cmb_type.currentText() == "target":
-            pattern = self.path_entry.text()
-            file_path_candidates = glob.glob("{0}/*".format(opened_window.dir_path), recursive=False)
-            file_path_list = [file_path for file_path in file_path_candidates if re.search(pattern, file_path) is not None]
-        elif self.cmb_type.currentText() == "target path":
-            dir_path_pattern_list = self.path_entry.text().strip().split("/")
-            dir_path = "/".join(dir_path_pattern_list[:-1])
-            pattern = dir_path_pattern_list[-1]
-            file_path_candidates = glob.glob("{0}/*".format(opened_window.dir_path), recursive=False)
-            file_path_list = [file_path for file_path in file_path_candidates if re.search(pattern, file_path) is not None]
-        elif self.cmb_type.currentText() == "from a file":
-            file_path_list = [self.path_entry.text()]
-        opened_window.toolbar_layout.add_spectrum_from_file(file_path_list=file_path_list)
-        return opened_window, "continue"
-class AddCustomName(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.add_spectrum_from_file(mode="macro", selection_type=self.cmb_type.currentText(), pattern=self.path_entry.text())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        selection_type = self.cmb_type.currentText()
+        pattern = self.path_entry.text()
+        # REGISTER
+        kwargs = {
+            "selection_type":selection_type, 
+            "pattern":pattern, 
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.cmb_type.setCurrentText(kwargs["selection_type"])
+        self.path_entry.setText(kwargs["pattern"])
+class AddSpectraFromObj(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "ASO"
+        self.title = "add spectrum from a file (s)"
+        # コンテンツ
+        self.data = None
+        self.path_entry = QLineEdit()
+        self.path_entry.setReadOnly(True)
+        self.path_entry.setStyleSheet("QLineEdit{background-color:rgba(0,0,0,0)}")
+        btnSetPath = QPushButton("...")
+        btnSetPath.setFixedWidth(40)
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel(self.title))
+        self.layout.addStretch(1)
+        self.layout.addWidget(self.path_entry)
+        self.layout.addWidget(QLabel(" "))
+        self.layout.addWidget(btnSetPath)
+        self.setFixedHeight(gf.process_widget_height)
+        # イベントコネクト
+        btnSetPath.clicked.connect(self.btnSetPath_clicked)
+    def btnSetPath_clicked(self, event):
+        cur_path = self.path_entry.text()
+        if not os.path.exists(cur_path):
+            cur_path = gf.settings["last opened dir"]
+        file_path, file_type = QFileDialog.getOpenFileName(self, 'select procedure file', cur_path, filter="procedure file (*.spc)")# *.out *.cspc *.spcl)")
+        if len(file_path):
+            data, log = self.get_data_from_file_path(file_path)
+            if data is None:
+                warning_popup = popups.WarningPopup(log)
+                warning_popup.exec_()
+                return
+            else:
+                self.data = data
+                self.path_entry.setText(file_path)
+    def get_data_from_file_path(self, file_path):
+        # REGISTER
+        if not os.path.exists(file_path):
+            return [None, "\n\nfile_path\n{0}\n\nFile does not exisit.".format(file_path)]
+        fnsub, matchedObject_list = gf.pre_open_search(file_path)
+        if fnsub > 1:
+            return [None, "\n\nfile_path\n{0}\n\nThe file contains more than 1 spectra.".format(file_path)]
+        spc_file, traceback = gf.open_spc_spcl(file_path)
+        if spc_file is None:
+            return [None, "\n\nfile_path\n{0}\n\n{1}".format(file_path, traceback)]
+        xData = list(spc_file.x)
+        yData = list(spc_file.sub[0].y)
+        info = {
+                "content":"spectrum",
+                "type":"added",
+                "detail":file_path,
+                "draw":"static",
+                "data":""
+            }
+        return {"xData":xData, "yData":yData, "info":info}, None
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "No window is opened."
+        if self.data is None:
+            return None, "Data is not set."
+        log = opened_window.toolbar_layout.add_spectra_from_obj(mode="macro", xData=self.data["xData"], yData=self.data["yData"], info=self.data["info"])
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        if self.data is None:
+            return [None, "Error in exporting '{0}' action.\n\nData is not set.".format(self.title)]
+        pattern = self.path_entry.text()
+        kwargs = {
+            "pattern":pattern, 
+            "data":self.data
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.path_entry.setText(kwargs["pattern"])
+        self.data = kwargs["data"]
+class UpdateCustomName(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "ACN"
-        self.title = "add custom name to added content"
+        self.title = "set custom name to added content"
         # コンテンツ
         self.map_or_spc_cmb = QComboBox()
         self.map_or_spc_cmb.addItems(["map", "spectrum"])
@@ -1178,13 +1582,23 @@ class AddCustomName(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'add current spectrum' action. No window is opened."
-        target_content = getattr(opened_window, "cur_displayed_{0}_content".format(self.map_or_spc_cmb.currentData()))
-        if target_content is None:
-            return None, "No window is added to the menu."
-        target_content.update_custom_name(self.custom_name.text())
-        return opened_window, "continue"
-class SpectrumSubtraction(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.update_custom_name(mode="macro", map_or_spc=self.map_or_spc_cmb.currentData(), custom_name=self.custom_name.text())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "map_or_spc":self.map_or_spc_cmb.currentData(), 
+            "custom_name":self.custom_name.text()
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        map_or_spc = "map"
+        if kwargs["map_or_spc"] == "spc":
+            map_or_spc = "spectrum"
+        self.map_or_spc_cmb.setCurrentText(map_or_spc)
+        self.custom_name.setText(kwargs["custom_name"])
+class ExecuteSpectrumLinearSubtraction(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
@@ -1193,7 +1607,10 @@ class SpectrumSubtraction(my_w.ClickableQWidget):
         self.title = "subtract spectrum"
         # オプション
         self.cmb = QComboBox()
-        self.cmb.addItems(["to hori. axis", "to hori. line", "to angl. line", "'n' as 1"])
+        self.cmb.addItems(["to hori. axis", "to hori. line", "to angl. line", "'n' as 1", "advanced"])
+        self.n1_idx = 3
+        self.advanced_idx = 4
+        self.cmb.setItemData(self.advanced_idx, {"cmb":"fit 'result' to the horizontal axis", "seRS_set":[(1900, 2500)]})
         self.range_bottom =  QSpinBox()
         self.range_top =  QSpinBox()
         self.range_bottom.setMinimum(0)
@@ -1202,6 +1619,7 @@ class SpectrumSubtraction(my_w.ClickableQWidget):
         self.range_top.setMaximum(65535)
         self.range_bottom.setValue(1900)
         self.range_top.setValue(2500)
+        self.advanced_label = QLabel("N range: 1")
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
@@ -1209,51 +1627,142 @@ class SpectrumSubtraction(my_w.ClickableQWidget):
         self.layout.addWidget(self.cmb)
         self.layout.addWidget(self.range_bottom)
         self.layout.addWidget(self.range_top)
+        self.layout.addWidget(self.advanced_label)
         self.setFixedHeight(gf.process_widget_height)
+        # イベントコネクト
+        self.cmb.activated.connect(self.item_activated)
+        self.advanced_label.hide()
+    def item_activated(self, event):
+        if event == self.n1_idx:
+            self.range_bottom.hide()
+            self.range_top.hide()
+            self.advanced_label.hide()
+            return
+        elif event != self.advanced_idx:
+            self.range_bottom.show()
+            self.range_top.show()
+            self.advanced_label.hide()
+            return
+        self.range_bottom.hide()
+        self.range_top.hide()
+        self.advanced_label.show()
+        advanced_popup = popups.MultipleRangeSettingsPopup(
+            parent=self.parent, 
+            cmb_messages=[
+                "fit 'result' to the horizontal axis", 
+                "fit 'result' to the horizontal line", 
+                "fit 'result' to the angled line", 
+                "set 'n' as 1"]
+            )
+        advanced_popup.set_from_data(self.cmb.currentData())
+        done = advanced_popup.exec_()
+        if done:
+            self.cmb.setItemData(self.advanced_idx, advanced_popup.get_data())
+            self.advanced_label.setText("N range: {0}".format(advanced_popup.N_valid_row))
+        else:
+            self.cmb.setCurrentIndex(0)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in '{0}' action. No window is opened.".fomat(self.title)
-        if opened_window.window_type not in ["ms", "s"]:
-            return opened_window, "Invalid window type."
-        if opened_window.cur_displayed_spc_content is None:
-            return None, "Error in '{0}' action. Exactly 1 added spectrum should be selected.".format(self.title)
-        log = opened_window.toolbar_layout.execute_spectrum_linear_subtraction(
-            event=None, 
-            mode="macro", 
-            range=[self.range_bottom.value(), self.range_top.value()], 
-            method=self.cmb.currentText()
-            )
-        if log == "executed":
-            return opened_window, "continue"
+            return None, "No window is opened."
+        seRS_set, method = self.get_range_method()
+        # 実行
+        log = opened_window.toolbar_layout.execute_spectrum_linear_subtraction(event=None, mode="macro", range=seRS_set, method=method)
+        return opened_window, log
+    def get_range_method(self):
+        if self.cmb.currentIndex() == self.advanced_idx:
+            data = self.cmb.itemData(self.advanced_idx)
+            seRS_set = data["seRS_set"]
+            method = data["cmb"]
         else:
-            return opened_window, "Not executed."
-class BatchUnmixing(my_w.ClickableQWidget):
+            seRS_set = [(self.range_bottom.value(), self.range_top.value())]
+            method = self.cmb.currentText()
+        return seRS_set, method
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        seRS_set, method = self.get_range_method()
+        kwargs = {
+            "range":seRS_set, 
+            "method":method
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        seRS_set = kwargs["range"]
+        method = kwargs["method"]
+        # 設定
+        if len(seRS_set) == 1:
+            self.cmb.setCurrentText(method)
+            self.range_bottom.setValue(seRS_set[0][0])
+            self.range_top.setValue(seRS_set[0][1])
+            if self.cmb.currentIndex() == self.n1_idx:
+                self.range_bottom.hide()
+                self.range_top.hide()
+        # advanced settings
+        else:
+            self.range_bottom.hide()
+            self.range_top.hide()
+            self.cmb.setItemData(self.advanced_idx, {"seRS_set":seRS_set, "cmb":method})
+            self.cmb.setCurrentIndex(self.advanced_idx)
+            self.advanced_label.setText("N range: {0}".format(len(seRS_set)))
+            self.advanced_label.show()
+class ExecuteUnmixing(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "UMX"
+        self.option = {}
         self.title = "unmixing"
+        # コンテンツ
+        self.range_left = QSpinBox()
+        self.range_left.setMinimum(-65535)
+        self.range_left.setMaximum(65535)
+        self.range_left.setValue(1900)
+        self.range_right = QSpinBox()
+        self.range_right.setMinimum(-65535)
+        self.range_right.setMaximum(65535)
+        self.range_right.setValue(2500)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("unmixing"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
+        self.layout.addWidget(self.range_left)
+        self.layout.addWidget(self.range_right)
         self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_unmixing(mode="macro", umx_range=(self.range_left.value(), self.range_right.value()))
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"umx_range":(self.range_left.value(), self.range_right.value())}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        seRS = kwargs["umx_range"]
+        self.range_left.setValue(seRS[0])
+        self.range_right.setValue(seRS[1])
 class ExportSvg(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "ESG"
         self.option = {}
+        self.title = "capture current spectrum"
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("capture current spectrum"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'capture current spectrum' action. No window is opened."
+            return None, "No window is opened."
         opened_window.toolbar_layout.export_svg()
         return opened_window, "continue"
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        pass
 class SaveTarget(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -1267,108 +1776,90 @@ class SaveTarget(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'save spectrum' action. No window is opened."
+            return None, "action. No window is opened."
         opened_window.toolbar_layout.save_target()
         return opened_window, "continue"
-class CosmicRayRemoval(my_w.ClickableQWidget):
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        pass
+class CRRMaster(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "CRR"
         self.option = {}
+        self.title = "cosmic ray removal"
         # オプション
         self.crr_target_files = QComboBox()
-        self.crr_target_files.addItems(["skip action when possible", "skip files with CRR data", "execute for all"])
+        self.crr_target_files.addItems(["skip action when possible", "skip files with CRR data", "execute for all", "revert"])
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("cosmic ray removal"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.crr_target_files)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'cosmic ray removal' action. No window is opened."
-        if opened_window.window_type == "ms":
-            if b'[CRR]' in opened_window.spectrum_widget.spc_file.log_other:
-                if self.crr_target_files.currentText() == "skip files with CRR data":
-                    opened_window.close()
-                    return None, "skip"
-                if self.crr_target_files.currentText() == "skip action when possible":
-                    return opened_window, "continue"
-            # PreProcess はお尻からしか消せないので、消していく。そうでない場合は消す必要なし。
-            if b'[CRR]' in opened_window.spectrum_widget.spc_file.log_other:
-                for func_name, kwargs in opened_window.spectrum_widget.spc_file.log_dict[b"prep_order"][::-1]:
-                    if func_name == "CRR_master":
-                        del opened_window.toolbar_layout.added_content_preprocess_list[-1]
-                        break
-                    elif func_name == "NR_master":
-                        opened_window.toolbar_layout.revert_NR()
-                        del opened_window.toolbar_layout.added_content_preprocess_list[-1]
-                    else:
-                        print(func_name)
-                        raise Exception("unknown preprocesses")
-            opened_window.parent.map_spect_table.window_focus_changed(opened_window)
-            QCoreApplication.processEvents()
-            opened_window.toolbar_layout.CRR_master(mode="macro", params={})
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
+            return None, "No window is opened."
+        if opened_window.window_type != "ms":
             return opened_window, "Invalid window type."
-class NoiseFilterPCA(my_w.ClickableQWidget):
+        log = opened_window.toolbar_layout.CRR_master(mode="macro", target_files=self.crr_target_files.currentText())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"mode":"macro", "target_files":self.crr_target_files.currentText()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.crr_target_files.setCurrentText(kwargs["target_files"])
+class NRMaster(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "NF"
         self.option = {}
+        self.title = "PCA based noise filter"
         # オプション
         self.nr_target_files = QComboBox()
-        self.nr_target_files.addItems(["skip action when possible", "skip files with NR data", "execute for all"])
+        self.nr_target_files.addItems(["skip action when possible", "skip files with NR data", "execute for all", "revert"])
         self.N_components = QSpinBox()
         self.N_components.setMinimum(0)
-        self.N_components.setMaximum(65535)
+        self.N_components.setMaximum(9999)
         self.N_components.setValue(100)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("PCA based noise filter"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.N_components)
         self.layout.addWidget(self.nr_target_files)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'PCA based noise filter' action. No window is opened."
-        if opened_window.window_type == "ms":
-            if b'[NR]' in opened_window.spectrum_widget.spc_file.log_other:
-                if self.nr_target_files.currentText() == "skip files with NR data":
-                    opened_window.close()
-                    return None, "skip"
-                if self.nr_target_files.currentText() == "skip action when possible":
-                    return opened_window, "continue"
-            # PreProcess はお尻からしか消せないので、消していく。そうでない場合は消す必要なし。
-            if b'[NR]' in opened_window.spectrum_widget.spc_file.log_other:
-                for func_name, kwargs in opened_window.spectrum_widget.spc_file.log_dict[b"prep_order"][::-1]:
-                    if func_name == "NR_master":
-                        del opened_window.toolbar_layout.added_content_preprocess_list[-1]
-                        break
-                    elif func_name == "CRR_master":
-                        opened_window.toolbar_layout.revert_CRR()
-                        del opened_window.toolbar_layout.added_content_preprocess_list[-1]
-                    else:
-                        print(func_name)
-                        raise Exception("unknown preprocesses")
-            opened_window.parent.map_spect_table.window_focus_changed(opened_window)
-            QCoreApplication.processEvents()
-            opened_window.toolbar_layout.NR_master(mode="macro", params={"N_components":self.N_components.value()})
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
+            return None, "No window is opened."
+        if opened_window.window_type != "ms":
             return opened_window, "Invalid window type."
+        log = opened_window.toolbar_layout.NR_master(mode="macro", target_files=self.nr_target_files.currentText(), N_components=self.N_components.value())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "mode":"macro", 
+            "target_files":self.nr_target_files.currentText(), 
+            "N_components":self.N_components.value()
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.nr_target_files.setCurrentText(kwargs["target_files"])
+        self.N_components.setValue(kwargs["N_components"])
 class SetWindowSize(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "SWS"
         self.option = {}
+        self.title = "set window size"
         # オプション
         self.w = QSpinBox()
         self.w.setMinimum(0)
@@ -1380,30 +1871,65 @@ class SetWindowSize(my_w.ClickableQWidget):
         self.h.setValue(0)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("set window size"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
-        self.layout.addWidget(QLabel("width:"))
+        self.layout.addWidget(QLabel(" w:"))
         self.layout.addWidget(self.w)
-        self.layout.addWidget(QLabel("height:"))
+        self.layout.addWidget(QLabel(" h:"))
         self.layout.addWidget(self.h)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'set window size' action. No window is opened."
-        width = self.w.value()
-        height = self.h.value()
-        if width == 0:
-            width = opened_window.frameGeometry().width()
-        if height == 0:
-            height = opened_window.frameGeometry().height()
-        opened_window.resize(width, height)
-        return opened_window, "continue"
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.set_window_size(width_height=(self.w.value(), self.h.value()))
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"width_height":[self.w.value(), self.h.value()]}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        width_height = kwargs["width_height"]
+        self.w.setValue(width_height[0])
+        self.h.setValue(width_height[1])
+class SelectWindow(my_w.ClickableQWidget):
+    def __init__(self, parent=None, main_window=None):
+        super().__init__(parent)
+        self.main_window = main_window
+        self.type = "SWS"
+        self.option = {}
+        self.title = "select window"
+        # オプション
+        self.spbx_idx = QSpinBox()
+        self.spbx_idx.setMinimum(-65535)
+        self.spbx_idx.setMaximum(65535)
+        self.spbx_idx.setValue(0)
+        # レイアウト
+        self.layout.setContentsMargins(11,0,11,0)
+        self.layout.addWidget(QLabel(self.title))
+        self.layout.addStretch(1)
+        self.layout.addWidget(QLabel(" target:"))
+        self.layout.addWidget(self.spbx_idx)
+        self.setFixedHeight(gf.process_widget_height)
+    def procedure(self, spc_path=None, opened_window=None):
+        if opened_window is None:
+            print(self.parent)
+            target_window, log = self.parent.parent.parent.select_window(mode="macro", idx=self.spbx_idx.value())
+        else:
+            target_window, log = opened_window.toolbar_layout.select_window(mode="macro", idx=self.spbx_idx.value())
+        return target_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"idx":self.spbx_idx.value()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.spbx_idx.setValue(kwargs["idx"])
 class ExportData(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "EXD"
         self.option = {}
+        self.title = "export data"
         # オプション
         self.cmb_content = QComboBox()
         self.cmb_content.addItems(["spectrum", "map"])
@@ -1418,7 +1944,7 @@ class ExportData(my_w.ClickableQWidget):
         self.cmb_export_m.setItemData(1, {"ext":".spc", "ask":False})
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("export data"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         # self.layout.addWidget(self.cmb_target)
         self.layout.addWidget(self.cmb_content)
@@ -1437,47 +1963,49 @@ class ExportData(my_w.ClickableQWidget):
             self.cmb_export_s.show()
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'export data' action. No window is opened."
-        # スペクトル選択時に、マップエクスポートが選択させると、エラー
-        if (opened_window.window_type == "s") & (self.cmb_content.currentText() == "map"):
-            return None, "Tried to export map data, but the data contains only one spectrum."
-        # 何も選択されてないと、エラー
-        if (self.cmb_content.currentText() == "spectrum") & (opened_window.cur_displayed_spc_content is None):
-            return None, "No item is selected in the {} table.".format(self.cmb_content.currentText())
-        if self.cmb_content.currentText() == "map":
-            if opened_window.cur_displayed_map_content is None:
-                return None, "No item is selected in the {} table.".format(self.cmb_content.currentText())
-        func_content = self.cmb_content.currentText()
-        if func_content == "spectrum":
-            func_args = self.cmb_export_s.currentData()
-        elif func_content == "map":
-            func_args = self.cmb_export_m.currentData()
-        else:
-            raise Exception("unkwon func_content: {0}".format(func_content))
-        func = getattr(opened_window.toolbar_layout, "export_{0}".format(func_content))
-        func(**func_args)
-        return opened_window, "continue"
-class ImportedPlugins(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.export_data(
+            map_or_spectrum=self.cmb_content.currentText(), 
+            ext_ask=getattr(self, "cmb_export_{0}".format(self.cmb_content.currentText()[0])).currentData()
+            )
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {
+            "map_or_spectrum":self.cmb_content.currentText(), 
+            "ext_ask":getattr(self, "cmb_export_{0}".format(self.cmb_content.currentText()[0])).currentData()
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        map_or_spectrum = kwargs["map_or_spectrum"]
+        self.cmb_content.setCurrentText(map_or_spectrum)
+        target_cmb = getattr(self, "cmb_export_{0}".format(map_or_spectrum[0]))
+        for i in range(target_cmb.count()):
+            if target_cmb.itemData(i) == kwargs["ext_ask"]:
+                target_cmb.setCurrentIndex(i)
+                break
+class ExecutePlugins(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "IP"
         self.option = {}
+        self.title = "imported plugins"
         # オプション
         self.action_type = QComboBox()
-        action_list = self.main_window.imported_plugins.actions()
-        for action in action_list:
+        for action in self.main_window.imported_plugins.actions():
             action_name = action.iconText()
             self.action_type.addItem(action_name, action)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("imported plugins"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.action_type)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'imported plugins' action. No window is opened."
+            return None, "No window is opened."
+        self.parent.parent.parent.temp_variables["clear temp_variables"] = False
         action_idx = self.action_type.currentIndex()
         cur_action = self.action_type.itemData(action_idx, role=Qt.UserRole)
         cur_action.trigger()
@@ -1488,12 +2016,27 @@ class ImportedPlugins(my_w.ClickableQWidget):
             return opened_window, "continue"
         except RuntimeError:
             return None, "skip"
-class ExecuteProcedures(my_w.ClickableQWidget):
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        action_name = self.action_type.currentText()
+        if action_name not in [action.iconText() for action in self.main_window.imported_plugins.actions()]:
+            return [None, "Error in exporting '{0}' action.\nCould not load:\n\n{1}".format(self.title, action_name)]
+        kwargs = {"action_name":action_name}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        action_name = kwargs["action_name"]
+        if action_name not in [action.iconText() for action in self.main_window.imported_plugins.actions()]:
+            warning_popups = popups.WarningPopup("No plugin named\n'{0}'\nfound in '{1}' action.\nSelect new plugin before executing the action flow.".format(action_name, self.title))
+            warning_popups.exec_()
+            action_name = "unknown plugin: '{0}'".format(action_name)
+            self.action_type.addItem(action_name)
+        self.action_type.setCurrentText(action_name)
+class ExecuteSavedActionFlows(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "EXP"
-        self.title = "execute procedures"
+        self.title = "exported Action Flow"
         self.option = {}
         # オプション中身
         self.path_entry = QLineEdit()
@@ -1502,7 +2045,7 @@ class ExecuteProcedures(my_w.ClickableQWidget):
         btnSetPath.clicked.connect(self.btnSetPath_clicked)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("execute procedures"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.path_entry)
         self.layout.addWidget(btnSetPath)
@@ -1516,13 +2059,24 @@ class ExecuteProcedures(my_w.ClickableQWidget):
             self.path_entry.setText(file_path)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'execute procedures' action. No window is opened."
-        if opened_window.window_type in ("ms", "s"):
-            opened_window.toolbar_layout.execute_saved_procedures(event=None, file_path=self.path_entry.text())
-            return opened_window, "continue"
-        else:
-            # opened_window.close()
-            return None, "Invalid window type."
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.execute_saved_action_flows(mode="macro", file_path=self.path_entry.text())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        file_path = self.path_entry.text()
+        try:
+            with open(file_path, 'r') as f:
+                procedures = json.loads(f.read())
+        except:
+            return [None, "Error in exporting '{0}' action.\nCould not load:\n\n{1}".format(self.title, file_path)]
+        kwargs = {
+            "file_path":file_path, 
+            "procedures":procedures
+            }
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.path_entry.setText(kwargs["file_path"])
 class HideSelectedItem(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -1531,71 +2085,85 @@ class HideSelectedItem(my_w.ClickableQWidget):
         self.option = {}
         self.title = "hide selected item"
         # コンテンツ
-        self.map_or_spc = QComboBox()
-        self.map_or_spc.addItems(["map", "spc"])
+        self.map_or_spectrum = QComboBox()
+        self.map_or_spectrum.addItems(["map", "spectrum", "preprocess"])
         self.hide_show = QComboBox()
         self.hide_show.addItems(["hide", "show"])
-        self.hide_show.setItemData(0, False)
-        self.hide_show.setItemData(1, True)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(QLabel("target: "))
-        self.layout.addWidget(self.map_or_spc)
+        self.layout.addWidget(self.map_or_spectrum)
         self.layout.addWidget(self.hide_show)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in '{0}' action. No window is opened.".format(self.title)
-        if (opened_window.window_type == "s") & (self.map_or_spc.currentText() == "map"):
-            return None, "Error in '{0}' action. Target 'map' cannot be applied to 1 spectrum data.".format(self.title)
-        target_content = getattr(opened_window, "cur_displayed_{0}_content".format(self.map_or_spc.currentText()))
-        if target_content is None:
-            return None, "Error in '{0}' action. No {1} item is selected.".format(self.title, self.map_or_spc.currentText())
-        target_content.hide_show_item(show=self.hide_show.currentData())
-        return opened_window, "continue"
-class HideAllInVb2(my_w.ClickableQWidget):
+            return None, "No window is opened."
+        log = opened_window.toolbar_layout.hide_selected_item(mode="macro", map_or_spectrum=self.map_or_spectrum.currentText(), hide_show=self.hide_show.currentText())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"map_or_spectrum":self.map_or_spectrum.currentText(), "hide_show":self.hide_show.currentText()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.map_or_spectrum.setCurrentText(kwargs["map_or_spectrum"])
+        self.hide_show.setCurrentText(kwargs["hide_show"])
+class HideAllInV2(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "HV2"
         self.option = {}
         self.title = "hide all items in view box 2"
+        # コンテンツ
+        self.cmb_hide_show = QComboBox()
+        self.cmb_hide_show.addItems(["hide", "show"])
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
         self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
+        self.layout.addWidget(self.cmb_hide_show)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in '{0}' action. No window is opened.".format(self.title)
-        opened_window.toolbar_layout.hide_all_in_v2(var_name="pseudo")
+            return None, "No window is opened."
+        opened_window.toolbar_layout.hide_all_in_v2(mode="macro", var_name="pseudo", hide_show=self.cmb_hide_show.currentText())
         return opened_window, "continue"
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"hide_show":self.cmb_hide_show.currentText()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.cmb_hide_show.setCurrentText(kwargs["hide_show"])
 class HideRightAxis(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
         self.main_window = main_window
         self.type = "HRA"
         self.option = {}
+        self.title = "hide right axis for view box 2"
         # オプション
         self.cmb_hide_show = QComboBox()
         self.cmb_hide_show.addItems(["hide", "show"])
-        self.cmb_hide_show.setItemData(0, False)
-        self.cmb_hide_show.setItemData(1, True)
         # レイアウト
         self.layout.setContentsMargins(11,0,11,0)
-        self.layout.addWidget(QLabel("hide right axis for view box 2"))
+        self.layout.addWidget(QLabel(self.title))
         self.layout.addStretch(1)
         self.layout.addWidget(self.cmb_hide_show)
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'hide right axis for view box 2' action. No window is opened."
+            return None, "No window is opened."
         QCoreApplication.processEvents()
-        if opened_window.spectrum_widget.getAxis("right").isVisible() != self.cmb_hide_show.currentData():
-            opened_window.toolbar_layout.hide_right_axis()
-        return opened_window, "continue"
+        log = opened_window.toolbar_layout.hide_right_axis(mode="macro", hide_show=self.cmb_hide_show.currentText())
+        return opened_window, log
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {"hide_show":self.cmb_hide_show.currentText()}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        self.cmb_hide_show.setCurrentText(kwargs["hide_show"])
 class Pause(my_w.ClickableQWidget):
     def __init__(self, parent=None, main_window=None):
         super().__init__(parent)
@@ -1611,7 +2179,7 @@ class Pause(my_w.ClickableQWidget):
         self.setFixedHeight(gf.process_widget_height)
     def procedure(self, spc_path=None, opened_window=None):
         if opened_window is None:
-            return None, "Error in 'pause' action. No window is opened."
+            return None, "No window is opened."
         # イベントループ
         loop = QEventLoop()
         # ポップアップ準備
@@ -1653,6 +2221,12 @@ class Pause(my_w.ClickableQWidget):
         pause_popup.close()
         ###
         return self.opened_window, self.continue_process
+    def export_AF(self):
+        func_name = gf.camel2snake(self.__class__.__name__)
+        kwargs = {}
+        return [func_name, kwargs]
+    def import_AF(self, **kwargs):
+        pass
 
 
 

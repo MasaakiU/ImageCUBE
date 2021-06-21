@@ -1,0 +1,61 @@
+from Modules import draw
+from scipy.optimize import lsq_linear as ll
+from scipy.stats import t
+from PyQt5.QtCore import QCoreApplication
+
+# 追加されているスペクトルを元に、レンジの範囲内で、background (from cell or quartz), signal(s), （これ以降追加スペクトル非依存）base, slope にアンミックス
+def center_of_mass(self, sRS, eRS, no_baseline_for_added=False):
+    # プログレスバー処理
+    self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Calculating p-values... please wait.")
+    self.pbar_widget.is_close_allowed = True
+    self.pbar_widget.show()
+    QCoreApplication.processEvents()
+    # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
+    sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
+    # 大元（unmixされる前のもの）は、spc_fileから情報を取得しよう（そのほうが楽だし…）
+    master_x_list, master_y_list = self.spc_file.get_data(sRS, eRS, 0)
+    average_x_list = np.empty(self.spc_file.fnsub, dtype=float)
+    average_y_list = np.empty(self.spc_file.fnsub, dtype=float)
+    segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub / 97)]
+    for idx, sub in enumerate(self.spc_file.sub):
+        master_y_list = sub.y[sRS_idx:eRS_idx + 1]
+        average_x_list[idx] = ((master_y_list - master_y_list.min()) * master_x_list).sum() / (master_y_list - master_y_list.min()).sum()
+        average_y_list[idx] = ((master_y_list[1:] + master_y_list[:-1]) * np.absolute(np.diff(master_x_list))).sum() / (master_x_list.ptp() * 2)
+        # pbar
+        if idx in segment_list:
+            self.pbar_widget.addValue(1)
+            QCoreApplication.processEvents()
+    # map画像作成
+    image2d = np.reshape(average_x_list, self.spc_file.get_shape()).T
+    # 作られたmapたちをmap_widgeteに渡す
+    image2D = draw.Image2D(image2d, name="center of mass {0}-{1}".format(sRS, eRS))
+    self.parent.toolbar_layout.add_content(
+        image2D, 
+        CLASS="Map",
+        info={
+            "content":"map", 
+            "type":"custom", 
+            "detail":"center_of_mass", 
+            "values":[sRS, eRS], 
+            "data":{"range":[sRS, eRS], "points":list(zip(average_x_list[:, np.newaxis], average_y_list[:, np.newaxis]))}
+            }, 
+        parent_window=self.parent
+    )
+    # プログレスバー閉じる
+    self.abs_id += 1
+    self.pbar_widget.is_close_allowed = True
+    self.pbar_widget.close()
+
+popup = popups.RangeSettingsPopup()
+done = popup.exec_()
+
+if done == 1:
+    sRS = popup.spbx_RS1.value()
+    eRS = popup.spbx_RS2.value()
+    center_of_mass(self.current_focused_window.spectrum_widget, sRS, eRS)
+
+
+
+
+
+

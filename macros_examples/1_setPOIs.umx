@@ -1,0 +1,51 @@
+[
+    [
+        "open_window",
+        {
+            "window_type": "hyperspectral data"
+        }
+    ],
+    [
+        "execute_signal_to_baseline",
+        {
+            "mode": "macro",
+            "RS_set": [
+                1900,
+                2500
+            ]
+        }
+    ],
+    [
+        "show_spectrum_with_max_int",
+        {
+            "value": 0.5
+        }
+    ],
+    [
+        "POI_settings",
+        {
+            "default_name": "@LD",
+            "pause": true
+        }
+    ],
+    [
+        "POI_settings",
+        {
+            "default_name": "@nonLD",
+            "pause": true
+        }
+    ],
+    [
+        "POI_settings",
+        {
+            "default_name": "@cfp",
+            "pause": true
+        }
+    ],
+    [
+        "close_window",
+        {
+            "target": "current focused"
+        }
+    ]
+]

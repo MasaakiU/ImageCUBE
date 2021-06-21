@@ -1,0 +1,63 @@
+
+import re
+import itertools
+
+from PyQt5.QtCore import QCoreApplication
+
+umx_range = (1900, 2400)
+
+dir_path = QFileDialog.getExistingDirectory(self, 'select folder', gf.settings["last opened dir"])
+ref_name_order = ["PA", "PtA", "HTDA", "SA", "OA", "LA", "aLA", "AA", "EPA", "DHA", "d420"]
+def get_name_idx(name):
+    for idx, ref_name in enumerate(ref_name_order):
+        if ref_name in name:
+            if ref_name == "LA":
+                if "aLA" in name:
+                    continue
+            return idx
+if len(dir_path):
+    # get standard spectrum files
+    spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
+    spc_std_path_list = []
+    spc_FA_name_list = []
+    for spc_path in spc_path_list:
+        if "minus" in spc_path:
+            spc_std_path_list.append(spc_path)
+            matched_object = re.match(".+_(d[0-9]+[a-zA-Z]*)_.+", spc_path)
+            spc_FA_name_list.append(matched_object.group(1))
+
+    # for a in spc_std_path_list:
+    #     print(os.path.basename(a))
+
+    # build method for each combination
+    combination = list(itertools.combinations(range(len(spc_std_path_list)), 2))
+    for idx1, idx2 in combination:
+        name_idx1 = get_name_idx(spc_FA_name_list[idx1])
+        name_idx2 = get_name_idx(spc_FA_name_list[idx2])
+        if name_idx1 > name_idx2:
+            spc_cmb_path_list = [spc_std_path_list[idx] for idx in [idx2, idx1]]
+            spc_cmb_name_list = [spc_FA_name_list[idx] for idx in [idx2, idx1]]
+        else:
+            spc_cmb_path_list = [spc_std_path_list[idx] for idx in [idx1, idx2]]
+            spc_cmb_name_list = [spc_FA_name_list[idx] for idx in [idx1, idx2]]
+        # new method
+        self.build_new_unmixing_method()
+        current_focused_window = self.current_focused_window
+        # add spectrums
+        for spc_cmb_path in spc_cmb_path_list:
+            spc_file = gf.open_spc_spcl(spc_cmb_path)
+            plot_data_item = pg.PlotDataItem(spc_file.x, spc_file.sub[0].y, fillLevel=0)
+            current_focused_window.toolbar_layout.add_plot_data_item(plot_data_item, detail=spc_cmb_path, values=[], data=spc_file)
+        # add background at cell free position
+        current_focused_window.toolbar_layout.include_CellFreePosition()
+        # set range
+        current_focused_window.toolbar_layout.range_left.setText(str(umx_range[0]))
+        current_focused_window.toolbar_layout.range_right.setText(str(umx_range[1]))
+        # export method
+        current_focused_window.toolbar_layout.export_method(save_path=os.path.join(dir_path, "fmCell_{0}{1}.umx".format(*spc_cmb_name_list)), ask=False)
+        # update gui
+        QCoreApplication.processEvents()
+        # close
+        current_focused_window.close()
+
+

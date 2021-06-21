@@ -1,0 +1,48 @@
+
+range_settings_popup = popups.MultipleRangeSettingsPopup(
+    initial_value_set=[(1800, 2000), (2300, 2500)], 
+    cmb_title="", 
+    cmb_messages=["AdvancedBtmY, AutoTopY", "0BtmY, AutoTopY", "AutoBtmY, AutoTopY"])
+done = range_settings_popup.exec_()
+if done:
+    auto_type = range_settings_popup.cmb.currentText()
+    value_set = range_settings_popup.get_all_values()
+    if auto_type == "AdvancedBtmY, AutoTopY":
+        auto_btm = "advanced"
+        auto_top = "auto"
+    elif auto_type == "0BtmY, AutoTopY":
+        auto_btm = "0"
+        auto_top = "auto"
+    elif auto_type == "AutoBtmY, AutoTopY":
+        auto_btm = "auto"
+        auto_top = "auto"
+    # 最大・最小
+    np_value_set = np.array(value_set)
+    min_y, max_y = self.current_focused_window.spectrum_widget.get_auto_yRange((np_value_set.min(), np_value_set.max()))
+    # 下
+    if auto_btm == "advanced":
+        average_list = []
+        net_range = 0
+        for values in value_set:
+            each_range = np.ptp(values)
+            full_xyData_list = self.current_focused_window.spectrum_widget.get_visible_full_xyData_list()
+            average_list.append(gf.get_local_average_multi(full_xyData_list, x_range=values) * each_range)
+            net_range += each_range
+        btm_value = sum(average_list) / net_range
+    elif auto_btm == "auto":
+        btm_value = min_y
+    elif auto_btm == "0":
+        btm_value = 0
+    else:
+        raise Exception("unknown type: {0}".format(auto_btm))
+    # 上
+    if auto_top == "auto":
+        top_value = max_y
+    else:
+        raise Exception("unknown type: {0}".format(auto_top))
+    self.current_focused_window.spectrum_widget.setYRange(btm_value, top_value, padding=0.15)
+
+
+
+
+

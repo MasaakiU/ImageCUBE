@@ -1,0 +1,16 @@
+
+
+current_focused_window = self.current_focused_window
+if current_focused_window.file_name.endswith("_FL.spc"):
+    current_focused_window.toolbar_layout.execute_signal_to_axis(ask=False, RS_set=[2000, 3500])
+    current_focused_window.toolbar_layout.save_all_maps()
+current_focused_window.close()
+
+
+
+
+
+
+
+
+

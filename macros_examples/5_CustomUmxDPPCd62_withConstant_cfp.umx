@@ -1,0 +1,117 @@
+[
+    [
+        "open_window",
+        {
+            "window_type": "hyperspectral data"
+        }
+    ],
+    [
+        "execute_plugins",
+        {
+            "action_name": "custom_umx_by_DPPCd62_withConstant_cfp_v0.6.5"
+        }
+    ],
+    [
+        "select_added_item",
+        {
+            "map_or_spectrum": "map",
+            "target_type": "index",
+            "target_text": "",
+            "target_idx": -1
+        }
+    ],
+    [
+        "hide_all_in_V2",
+        {
+            "hide_show": "hide"
+        }
+    ],
+    [
+        "set_spectrum_range",
+        {
+            "xy": "x",
+            "range_x": [
+                2000,
+                2300
+            ],
+            "range_y": [
+                "AUTO",
+                "AUTO"
+            ]
+        }
+    ],
+    [
+        "go_to_position_of_interest",
+        {
+            "poi_key": "@LD"
+        }
+    ],
+    [
+        "set_spectrum_range",
+        {
+            "xy": "y",
+            "range_x": [
+                1800,
+                2500
+            ],
+            "range_y": [
+                "AUTO",
+                "AUTO"
+            ]
+        }
+    ],
+    [
+        "export_svg",
+        {}
+    ],
+    [
+        "go_to_position_of_interest",
+        {
+            "poi_key": "@nonLD"
+        }
+    ],
+    [
+        "set_spectrum_range",
+        {
+            "xy": "y",
+            "range_x": [
+                1800,
+                2500
+            ],
+            "range_y": [
+                "AUTO",
+                "AUTO"
+            ]
+        }
+    ],
+    [
+        "export_svg",
+        {}
+    ],
+    [
+        "set_map_image_contrast",
+        {
+            "contrast_range": [
+                0,
+                65535
+            ],
+            "bit": "32bit"
+        }
+    ],
+    [
+        "export_data",
+        {
+            "map_or_spectrum": "map",
+            "ext_ask": {
+                "ask": false,
+                "ext": ".tiff .svg"
+            }
+        }
+    ],
+    [
+        "close_window",
+        {
+            "target": "current focused"
+        }
+    ]
+]

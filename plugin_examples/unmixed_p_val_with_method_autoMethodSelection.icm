@@ -1,0 +1,212 @@
+import re
+
+from Modules import draw
+from scipy.optimize import lsq_linear as ll
+from scipy.stats import t
+from PyQt5.QtCore import QCoreApplication
+
+
+# 追加されているスペクトルを元に、レンジの範囲内で、background (from cell or quartz), signal(s), （これ以降追加スペクトル非依存）base, slope にアンミックス
+def unmixing_p_val(self, sRS, eRS, no_baseline_for_added=False):
+    # プログレスバー処理
+    self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Calculating p-values... please wait.")
+    self.pbar_widget.is_close_allowed = True
+    self.pbar_widget.show()
+    QCoreApplication.processEvents()
+    # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
+    sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
+    # 大元（unmixされる前のもの）は、spc_fileから情報を取得しよう（そのほうが楽だし…）
+    umx_x_list, master_y_list = self.spc_file.get_data(sRS, eRS, 0)
+    # デコンボするための素材：全て master_x に合うようにinterpolateするので、regional_x_listの方は不要
+    added_content_list = [widget.optional_item for widget in self.parent.parent.map_spect_table.spectrum_layout.all_widgets() 
+        if (widget.optional_item.info["type"] == "added") and widget.optional_item.item.isVisible()]
+    added_summary_list = [added_content.summary() for added_content in added_content_list]
+    n_data_points = len(umx_x_list)
+    n_spectrum = len(added_content_list) + 2   # "+2" は base, slope の分
+    regional_y_matrix = np.empty((n_data_points, n_spectrum), dtype=float, order="F")
+    # base, slopeを追加
+    regional_y_matrix[:, -2] = -1                               # base: 正方向の下駄は、slopeの和で表現可能
+    regional_y_matrix[:, -1] = umx_x_list - umx_x_list.min()    # slopeは常に正にも負にもなる
+    x_range = np.ptp(umx_x_list)
+    # signalsを加えていく（全て追加されたスペクトルをベースに追加する）
+    for idx, added_content in enumerate(added_content_list):
+        x_list = added_content.item.xData
+        y_list = added_content.item.yData
+        # interpする場合は元のデータのxは昇順である必要がある
+        order = np.argsort(x_list)
+        x_list = x_list[order]
+        y_list = y_list[order]
+        # 補完して取り出す（x_listがmaste_x_listと同じ時は、interpolateする必要無いけど、x_listがが降順の場合もあるのでちとややこしい）
+        regional_y_list = np.interp(umx_x_list, x_list, y_list)  # この場合は勝手にmasete_x_listの順になってくれる
+        # signal to baselineと同じ手法ででbgを除く（今後消す方針で：BGは事前に除いておくイメージ）
+        if not no_baseline_for_added:
+            regional_y_list -= np.linspace(regional_y_list[0], regional_y_list[-1], num=n_data_points)
+        regional_y_matrix[:, idx] = regional_y_list
+
+    # least-square
+    umx_height_matrix = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)
+
+    #############
+    p_val_set = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)   # (peaks, base, slope), to (peaks, min{baseL, slope}, total)
+    #############
+
+    segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
+    Var_pre, d_freedom = ls_stat_pre(regional_y_matrix)
+    for idx, sub in enumerate(self.spc_file.sub):
+        master_y_list = sub.y[sRS_idx:eRS_idx + 1]
+
+        #############
+        x2, SE, t_vals, p, btm95 = ls_stat_post(regional_y_matrix, Var_pre, master_y_list, d_freedom)
+        p_val_set[idx] = p
+        umx_height_matrix[idx] = x2
+        #############
+
+        # pbar
+        if idx in segment_list:
+            self.pbar_widget.addValue(1)
+            QCoreApplication.processEvents()
+
+    # 基本面積を乗じて面積を求める：最後の3つはまとめてベースラインとなっている➙和を取る：トータルのシグナルを最後に追加：rnorm_listも追加➙とりあえずしません！
+    p_val_list_set = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)
+    p_val_list_set[:, :-2] = p_val_set[:, :-2]
+    p_val_list_set[:, -2] = p_val_set[:, -2:].min(axis=1)       # min(p-val of base, p-val of slope)
+    p_val_list_set[:, -1] = (p_val_list_set[:, :-1] < 0.05).all(axis=1).astype(int)
+    # map画像作成
+    image2d_list = [np.reshape(area_list, self.spc_file.get_shape()).T for area_list in p_val_list_set.T]
+    optional_name_list = added_summary_list + ["baseline_drift (min (intercept, slope))", "where p-val < 0.05"]
+    optional_id_list = list(map(lambda x: str(x+1), range(n_spectrum - 2))) + ["bd", "ts"]
+    # 作られたmapたちをmap_widgeteに渡す
+    N_before_append = len(self.parent.map_widget.image2D_list)
+    for idx, (image2d, optional_name, optional_id) in enumerate(zip(image2d_list, optional_name_list, optional_id_list)):
+        image2D = draw.Image2D(image2d, name="unmixed_p-val_%d-%d_%s"%(sRS, eRS, optional_id))
+        self.parent.map_widget.image2D_list.append(image2D)
+        # ボタン追加
+        if idx < n_spectrum - 2:
+            umx_y_matrix = regional_y_matrix[:, [idx,-2,-1]]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
+            umx_h_matrix = umx_height_matrix[:, [idx,-2,-1]]   # umx_height_matrix.shape = (fnsub, n_spectrum)
+        # baseline drift
+        elif idx == n_spectrum - 2:
+            umx_y_matrix = regional_y_matrix[:, -2:]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
+            umx_h_matrix = umx_height_matrix[:, -2:]   # umx_height_matrix.shape = (fnsub, n_spectrum)
+        # total signal / p005
+        elif idx == n_spectrum - 1:
+            umx_y_matrix = regional_y_matrix[:, -1:]   # regional_y_matrix.shape = (n_data_points, n_spectrum)
+            umx_h_matrix = umx_height_matrix[:, -1:]   # umx_height_matrix.shape = (fnsub, n_spectrum)
+        unmixed_data = draw.UnmixedData(
+            standard_type = optional_id, 
+            abs_id = self.abs_id, 
+            n_th_components = (idx, n_spectrum),       # 表示するための曲線の数。n_spectrum - 3 + 2 (baseline drift, total signal の 2)
+            umx_x_list = umx_x_list, 
+            umx_y_matrix = umx_y_matrix, 
+            umx_h_matrix = umx_h_matrix
+            )
+        self.parent.toolbar_layout.add_content(
+            image2D, 
+            CLASS="Unmixed",
+            info={
+                "content":"map", 
+                "type":"unmixed", 
+                "detail":"<p-val> " + optional_name, 
+                "values":[sRS, eRS, "#" + optional_id], 
+                "idx":idx, 
+                "data":unmixed_data
+                }, 
+            parent_window=self.parent
+        )
+    # プログレスバー閉じる
+    self.abs_id += 1
+    self.pbar_widget.is_close_allowed = True
+    self.pbar_widget.close()
+
+# get x to minimize ||Ax - b||
+# 片側 5% 検定
+def ls_stat_pre(A):
+    N_data, N_var = A.shape
+    d_freedom = N_data - N_var
+    Var_pre = np.linalg.inv(np.dot(A.T, A)) / d_freedom
+    return Var_pre, d_freedom
+def ls_stat_post(A, Var_pre, b, d_freedom):
+    result = ll(A, b)
+    Var_x = Var_pre * np.dot(result.fun.T, result.fun)
+    SE = np.sqrt(np.diag(Var_x))
+    t_vals = np.divide(result.x, SE)
+    p = t.cdf(-np.absolute(t_vals), df=d_freedom)
+    # btm = result.x - t.ppf(0.975, df=d_freedom) * SE
+    # top = result.x + t.ppf(0.975, df=d_freedom) * SE
+    btm95 = result.x - t.ppf(0.95, df=d_freedom) * SE
+    return result.x, SE, t_vals, p, btm95
+
+def unmix_with_method(self, UMX):
+    # procedures順に処理いていく
+    for procedure in UMX.procedures:
+        # とりあえず、登録されてるスペクトル全部を使ってunmixしてくパターン
+        if procedure == "unmix":
+            # バックグラウンドの場所を選択する
+            if UMX.isBackgroundSet:
+                if b"[cfp]" in self.spc_file.log_other:
+                    cfp_x = int(self.spc_file.log_dict[b"cfp_x"])
+                    cfp_y = int(self.spc_file.log_dict[b"cfp_y"])
+                else:
+                    bg_loc_settings_popup = popups.RangeSettingsPopup(parent=self, initial_values=(1, 1), labels=("x (pixels from left)", "y (pixels from top)"), title="background location")
+                    bg_loc_settings_popup.spbx_RS1.setMaximum(0)    # 最後に転置して表示するので、xとyが逆になってる
+                    bg_loc_settings_popup.spbx_RS2.setMaximum(0)    # 最後に転置して表示するので、xとyが逆になってる
+                    bg_loc_settings_popup.spbx_RS1.setMaximum(int(self.spc_file.log_dict[b"map_y"]) - 1)    # 最後に転置して表示するので、xとyが逆になってる
+                    bg_loc_settings_popup.spbx_RS2.setMaximum(int(self.spc_file.log_dict[b"map_x"]) - 1)    # 最後に転置して表示するので、xとyが逆になってる
+                    done = bg_loc_settings_popup.exec_()
+                    if done:
+                        cfp_x = bg_loc_settings_popup.spbx_RS1.value()
+                        cfp_y = bg_loc_settings_popup.spbx_RS2.value()
+                        file_path = os.path.join(self.parent.dir_path, self.parent.file_name)
+                        self.spc_file.set_cfp(file_path, cfp_x, cfp_y)
+                    else:
+                        return
+            # スペクトル追加
+            for spc_like, file_path in zip(UMX.spc_like_list, UMX.file_path_list):
+                plot_data_item = pg.PlotDataItem(spc_like.x, spc_like.sub[0].y, fillLevel=0)
+                self.parent.toolbar_layout.add_plot_data_item(plot_data_item, detail=file_path, values=[])
+            # bg追加
+            if UMX.isBackgroundSet:
+                self.replace_spectrum(map_x=cfp_x, map_y=cfp_y)
+                self.parent.toolbar_layout.add_current_spectrum()
+            # アンミックスで p 値を出す
+            unmixing_p_val(self, UMX.target_range[0], UMX.target_range[1])
+
+######
+
+
+
+file_name = self.current_focused_window.file_name
+matched_object = re.match(".+_(d[0-9]+[a-zA-Z]+d[0-9]+[a-zA-Z]+)_.+", file_name)
+FA_set = matched_object.group(1)
+file_path = "/Users/masaaki/Google Drive/Data/Raman/methods/CellMethods/20190829_cell_600_methods/20190829_cell_600_methods2_douplex/fmCell_{0}.umx".format(FA_set)
+
+if file_path:
+    with open(file_path, 'rb') as f:
+        UMX = pickle.load(f)
+    current_focused_window = self.current_focused_window
+    # vb2 情報を事前確保
+    already_in_vb2 = len(current_focused_window.spectrum_widget.vb2.addedItems)
+    if already_in_vb2:
+        v2_x_range, v2_y_range = current_focused_window.spectrum_widget.vb2.viewRange()
+    is_displayed_list = []
+    for added_item in current_focused_window.spectrum_widget.vb2.addedItems:
+        is_displayed_list.append(added_item.isVisible())
+        added_item.hide()
+    # unmix
+    unmix_with_method(current_focused_window.spectrum_widget, UMX)
+    # 追加スペクトルを隠す
+    for addeed_item in current_focused_window.spectrum_widget.vb2.addedItems:
+        addeed_item.hide()
+    current_focused_window.spectrum_widget.replace_spectrum(0, 0)
+    # 元のv2を復帰
+    for idx, is_displayed in enumerate(is_displayed_list):
+        if is_displayed:
+            current_focused_window.spectrum_widget.vb2.addedItems[idx].show()
+    if already_in_vb2:
+        current_focused_window.spectrum_widget.vb2.setYRange(*v2_y_range)
+
+    # 次回用に保存
+    gf.settings["method dir"] = os.path.dirname(file_path)
+    gf.save_settings_file()
+
+

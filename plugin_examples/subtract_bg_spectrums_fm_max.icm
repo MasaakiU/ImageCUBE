@@ -1,0 +1,71 @@
+
+
+sig_int_value = 2950
+subtract_range = (3300, 3800)
+# subtract_range = (250, 450)
+NR = 100
+
+dir_path = QFileDialog.getExistingDirectory(self, 'select folder', gf.settings["last opened dir"])
+if len(dir_path):
+    spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
+    for spc_path in spc_path_list:
+        self.just_open(spc_path)
+        current_focused_window_ms = self.current_focused_window
+        if current_focused_window_ms.window_type != "ms":
+            current_focused_window_ms.close()
+            continue
+        current_focused_window_ms.toolbar_layout.execute_signal_intensity(ask=False, RS=sig_int_value)
+        # Noise Reduction
+        if NR:
+            current_focused_window_ms.toolbar_layout.apply_noise_filter(ask=False, N_components=100)
+        # show spectrum with max intensity
+        cur_image2D = current_focused_window_ms.map_widget.get_cur_image2D()
+        if cur_image2D is None:
+            raise Exception("Error in 'show spectrum with max intensity' action.\nImages must be set before showing spectrum with max intensity.")
+        cur_image2d = cur_image2D.image2d
+        max_loc = np.unravel_index(np.argmax(cur_image2d), cur_image2d.shape)
+        current_focused_window_ms.spectrum_widget.replace_spectrum(*max_loc)
+        current_focused_window_ms.map_widget.set_crosshair(*max_loc)
+        # export current spectrum
+        max_spc_save_path = "{0}x{1[0]}y{1[1]}.spc".format(os.path.join(current_focused_window_ms.dir_path, current_focused_window_ms.file_name_wo_ext), max_loc)
+        current_focused_window_ms.toolbar_layout.added_spectrum_info_list[0].export_spectrum(save_path=max_spc_save_path, ask=False)
+        # show background
+        cfp_locs = (
+            int(current_focused_window_ms.spectrum_widget.spc_file.log_dict[b"cfp_x"]), 
+            int(current_focused_window_ms.spectrum_widget.spc_file.log_dict[b"cfp_y"])
+            )
+        current_focused_window_ms.spectrum_widget.replace_spectrum(*cfp_locs)
+        current_focused_window_ms.map_widget.set_crosshair(*cfp_locs)
+        # export current spectrum
+        bg_spc_save_path = "{0}x{1[0]}y{1[1]}.spc".format(os.path.join(current_focused_window_ms.dir_path, current_focused_window_ms.file_name_wo_ext), cfp_locs)
+        current_focused_window_ms.toolbar_layout.added_spectrum_info_list[0].export_spectrum(save_path=bg_spc_save_path, ask=False)
+        # close
+        current_focused_window_ms.close()
+
+        # open created max_spc
+        self.just_open(max_spc_save_path)
+        current_focused_window_max = self.current_focused_window
+        # open, add
+        bg_spc_file = gf.open_spc_spcl(bg_spc_save_path)
+        plot_data_item = pg.PlotDataItem(bg_spc_file.x, bg_spc_file.sub[0].y, fillLevel=0)
+        current_focused_window_max.toolbar_layout.add_plot_data_item(plot_data_item, detail=bg_spc_save_path, values=[], data=bg_spc_file)
+        # spectrum subtraction
+        current_focused_window_max.spectrum_widget.spectrum_linear_subtraction(*subtract_range)
+        # save
+        sub_spc_save_path = "{0}_minus_x{1[0]}y{1[1]}_{2[0]}-{2[1]}.spc".format(
+            os.path.join(current_focused_window_max.dir_path, current_focused_window_max.file_name_wo_ext), 
+            cfp_locs, 
+            subtract_range
+            )
+        current_focused_window_max.toolbar_layout.added_spectrum_info_list[2].export_spectrum(save_path=sub_spc_save_path, ask=False)
+        # close
+        current_focused_window_max.close()
+
+
+
+
+
+
+
+
+

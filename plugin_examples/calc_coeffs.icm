@@ -1,0 +1,67 @@
+
+
+
+sRS = 1800
+eRS = 2400
+
+
+dir_path = QFileDialog.getExistingDirectory(self, 'select folder', gf.settings["last opened dir"])
+spc_path_list = glob.glob("%s/**/*.spc"%dir_path, recursive=True)
+
+
+d_len = 0
+x_list = []
+y_list = []
+name_list = []
+
+for spc_path in spc_path_list:
+    self.just_open(spc_path)
+    opened_window = self.child_window_list[-1]
+    current_focused_window = self.current_focused_window
+    if opened_window.window_type == "s":
+        name_list.append(os.path.basename(spc_path))
+        d_len += 1
+        x_data, y_data = opened_window.spectrum_widget.spc_file.get_data(sRS, eRS, sub_idx=0)
+        x_list.append(x_data)
+        y_list.append(y_data)
+    opened_window.close()
+
+# calc x_list
+N_x_list = len(x_list)
+len_x_list = list(map(len, x_list))
+if not len(set(len_x_list)) == 1:
+    N_each_len_type_list = [len_x_list.count(len_type) for len_type in list(set(len_x_list))]
+    arg_max = N_each_len_type_list.index(max(N_each_len_type_list))
+    major_len = list(set(len_x_list))[arg_max]
+    mean_x = x_list[len_x_list.index(major_len)]
+    len_x = len(mean_x)
+else:
+    len_x = len_x_list[0]
+    x_data_list = np.empty((N_x_list, len_x), dtype=float)
+    for i, x in enumerate(x_list):
+        x_data_list[i] = x
+    mean_x = x_data_list.mean(axis=0)
+
+y_data_list = np.empty((N_x_list, len_x), dtype=float)
+for i, (x, y) in enumerate(zip(x_list, y_list)):
+    arg_sort = np.argsort(x)
+    y_data_list[i] = np.interp(mean_x, x[arg_sort], y[arg_sort])
+
+
+cov_matrix = np.corrcoef(y_data_list)
+
+result_text = ""
+for i, name in enumerate(name_list):
+    result_text += "\t" + name_list[i]
+
+for i, name in enumerate(name_list):
+    result_text += "\n" + name_list[i]
+    for j, name in enumerate(name_list):
+        result_text += "\t" + str(cov_matrix[i, j])
+
+with open("/Users/masaaki/Desktop/result.txt", mode="+w") as f:
+    f.write(result_text)
+
+
+
+

@@ -1,0 +1,206 @@
+import types
+
+from scipy.optimize import lsq_linear as ll
+from scipy.stats import t
+from PyQt5.QtCore import QCoreApplication
+
+from Modules import draw
+
+
+# 追加されているスペクトルを元に、レンジの範囲内で、background (from cell or quartz), signal(s), （これ以降追加スペクトル非依存）base, slope にアンミックス
+def unmixing_p_val(self, sRS, eRS, no_baseline_for_added=False):
+    # プログレスバー処理
+    self.pbar_widget = popups.ProgressBarWidget(parent=self, message="Calculating p-values... please wait.")
+    self.pbar_widget.is_close_allowed = True
+    self.pbar_widget.show()
+    QCoreApplication.processEvents()
+    # (sRS, eRS)と(sRS-idx, eRS-idx)は必ずしも一致しない（RSは降順にもなりうるがidxはあくまで昇順に並ぶ）
+    sRS_idx, eRS_idx = np.sort([self.spc_file.get_idx(sRS), self.spc_file.get_idx(eRS)])
+    # 大元（unmixされる前のもの）は、spc_fileから情報を取得しよう（そのほうが楽だし…）
+    umx_x_list, master_y_list = self.spc_file.get_data(sRS, eRS, 0)
+    # デコンボするための素材：全て master_x に合うようにinterpolateするので、regional_x_listの方は不要
+    added_content_list = [widget.optional_item for widget in self.parent.parent.map_spect_table.spectrum_layout.all_widgets() 
+        if (widget.optional_item.info["type"] == "added") and widget.optional_item.item.isVisible()]
+    added_summary_list = [added_content.summary() for added_content in added_content_list]
+    n_data_points = len(umx_x_list)
+    n_spectrum = len(added_content_list) + 2   # "+2" は base, slope の分
+    regional_y_matrix = np.empty((n_data_points, n_spectrum), dtype=float, order="F")
+    # base, slopeを追加
+    regional_y_matrix[:, -2] = -1                               # base: 正方向の下駄は、slopeの和で表現可能
+    regional_y_matrix[:, -1] = umx_x_list - umx_x_list.min()    # slopeは常に正にも負にもなる
+    x_range = np.ptp(umx_x_list)
+    # signalsを加えていく（全て追加されたスペクトルをベースに追加する）
+    for idx, added_content in enumerate(added_content_list):
+        x_list = added_content.item.xData
+        y_list = added_content.item.yData
+        # interpする場合は元のデータのxは昇順である必要がある
+        order = np.argsort(x_list)
+        x_list = x_list[order]
+        y_list = y_list[order]
+        # 補完して取り出す（x_listがmaste_x_listと同じ時は、interpolateする必要無いけど、x_listがが降順の場合もあるのでちとややこしい）
+        regional_y_list = np.interp(umx_x_list, x_list, y_list)  # この場合は勝手にmasete_x_listの順になってくれる
+        # signal to baselineと同じ手法ででbgを除く（今後消す方針で：BGは事前に除いておくイメージ）
+        if not no_baseline_for_added:
+            regional_y_list -= np.linspace(regional_y_list[0], regional_y_list[-1], num=n_data_points)
+        regional_y_matrix[:, idx] = regional_y_list
+
+    # least-square
+    umx_height_matrix = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)
+
+    #############
+    p_val_set = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)   # (peaks, base, slope), to (peaks, min{baseL, slope}, total)
+    #############
+
+    segment_list = np.arange(self.spc_file.fnsub)[::int(self.spc_file.fnsub/97)]
+    Var_pre, d_freedom = ls_stat_pre(regional_y_matrix)
+    for idx, sub in enumerate(self.spc_file.sub):
+        master_y_list = sub.y[sRS_idx:eRS_idx + 1]
+
+        #############
+        x2, SE, t_vals, p, btm95 = ls_stat_post(regional_y_matrix, Var_pre, master_y_list, d_freedom)
+        p_val_set[idx] = p
+        umx_height_matrix[idx] = x2
+        #############
+
+        # pbar
+        if idx in segment_list:
+            self.pbar_widget.addValue(1)
+            QCoreApplication.processEvents()
+
+    # 基本面積を乗じて面積を求める：最後の3つはまとめてベースラインとなっている➙和を取る：トータルのシグナルを最後に追加：rnorm_listも追加➙とりあえずしません！
+    p_val_list_set = np.empty((self.spc_file.fnsub, n_spectrum), dtype=float)
+    p_val_list_set[:, :-2] = p_val_set[:, :-2]
+    p_val_list_set[:, -2] = p_val_set[:, -2:].min(axis=1)       # min(p-val of base, p-val of slope)
+    p_val_list_set[:, -1] = (p_val_list_set[:, :-1] < 0.05).all(axis=1).astype(int)
+    # map画像作成
+    image2d_list = [np.reshape(area_list, self.spc_file.get_shape()).T for area_list in p_val_list_set.T]
+    optional_name_list = added_summary_list + ["baseline_drift (min (intercept, slope))", "where p-val < 0.05"]
+    optional_id_list = list(map(lambda x: str(x+1), range(n_spectrum - 2))) + ["bd", "ts"]
+    line_idx_list = list(range(n_spectrum - 2)) + [-2, -1]
+    # bd は、正負の slope を考慮して作らないと、描画の際にエラーが出る
+    def get_y_data_matrix(self, sub_idx):
+        y_matrix = self.umx_y_matrix * self.umx_h_matrix[sub_idx]
+        bd_matrix = y_matrix[:, -2:].sum(axis=1, keepdims=True) # bd
+        y_data_matrix = np.empty((len(self.umx_x_list), self.N_lines()), dtype=float)
+        y_data_matrix[:, :-2] = y_matrix[:, :-2] + bd_matrix
+        y_data_matrix[:, -2]  = bd_matrix[:, 0]
+        y_data_matrix[:, -1]  = y_matrix.sum(axis=1)    # ts
+        return y_data_matrix
+    def N_lines(self):
+        return self.umx_y_matrix.shape[1] # ts, bd を含み、bd のプラスマイナスの重複はない。
+    def get_default_path(self, ext):
+        return "{0}_pval_{1}{2}{3}".format(
+            os.path.join(self.parent_window.dir_path, self.parent_window.file_name_wo_ext), 
+            self.info["type"], self.format_data(), 
+            ext
+        )
+    for idx, (image2d, optional_name, optional_id, line_idx) in enumerate(zip(image2d_list, optional_name_list, optional_id_list, line_idx_list)):
+        image2D = draw.Image2D(image2d, name="unmixed_p-val_%d-%d_%s"%(sRS, eRS, optional_id))
+        # ボタン追加
+        unmixed_data = draw.UnmixedData(
+            abs_id = self.abs_id, 
+            standard_type = optional_id, 
+            line_idx = line_idx, 
+            umx_x_list = umx_x_list, 
+            umx_y_matrix = regional_y_matrix, 
+            umx_h_matrix = umx_height_matrix, 
+            func_list={
+                "get_y_data_matrix":get_y_data_matrix, 
+                "N_lines":N_lines
+                }
+            )
+        added_content = draw.AddedContent_Unmixed(
+            item = image2D, 
+            info={
+                "content":"map", 
+                "type":"unmixed", 
+                "detail":"<p-val> " + optional_name, 
+                "draw":"func", 
+                "data":[sRS, eRS], 
+                "advanced_data":unmixed_data
+                }, 
+        parent_window=self.parent
+        )
+        added_content.get_default_path = types.MethodType(get_default_path, added_content)
+        self.parent.toolbar_layout.add_content(added_content)
+    # プログレスバー閉じる
+    self.abs_id += 1
+    self.pbar_widget.master_close()
+
+# get x to minimize ||Ax - b||
+# 片側 5% 検定
+def ls_stat_pre(A):
+    N_data, N_var = A.shape
+    d_freedom = N_data - N_var
+    Var_pre = np.linalg.inv(np.dot(A.T, A)) / d_freedom
+    return Var_pre, d_freedom
+def ls_stat_post(A, Var_pre, b, d_freedom):
+    result = ll(A, b)
+    Var_x = Var_pre * np.dot(result.fun.T, result.fun)
+    SE = np.sqrt(np.diag(Var_x))
+    t_vals = np.divide(result.x, SE)
+    p = t.cdf(-np.absolute(t_vals), df=d_freedom)
+    # btm = result.x - t.ppf(0.975, df=d_freedom) * SE
+    # top = result.x + t.ppf(0.975, df=d_freedom) * SE
+    btm95 = result.x - t.ppf(0.95, df=d_freedom) * SE
+    return result.x, SE, t_vals, p, btm95
+# def ls_stat(A, b):
+#     N_data, N_var = A.shape
+#     d_freedom = N_data - N_var
+#     result = ll(A, b)
+#     Var_x = np.linalg.inv(np.dot(A.T, A)) * np.dot(result.fun.T, result.fun) / d_freedom
+#     SE = np.sqrt(np.diag(Var_x))
+#     t_vals = np.divide(result.x, SE)
+#     p = t.cdf(-np.absolute(t_vals), df=d_freedom)
+#     # btm = result.x - t.ppf(0.975, df=d_freedom) * SE
+#     # top = result.x + t.ppf(0.975, df=d_freedom) * SE
+#     btm95 = result.x - t.ppf(0.95, df=d_freedom) * SE
+#     return result.x, SE, t_vals, p, btm95
+
+def execute_unmixing(self, event=None, ask=True, **kwargs):
+    RS1, RS2 = kwargs["umx_range"]
+    RS1, RS2 = np.sort([RS1, RS2])
+    # アンミックス及びスペクトル追加、画像追加
+    unmixing_p_val(self.parent.spectrum_widget, RS1, RS2)
+    # mapの場合
+    if self.parent.spectrum_widget.spc_file.fnsub > 1:
+        TYPE = "map"
+        self.set_spectrum_and_crosshair(0, 0)
+    # 単一スペクトルの場合
+    else:
+        TYPE = "spectrum"
+    # アンミックスされたもののうち、最後のもの（total_signal）を表示 
+    # -> 最後のものは、どちらにしろ map_spect_table に追加される時点でフォーカスされてるので、どちらかというと、 abs_id のものを half_focus にするために行う
+    self.parent.parent.map_spect_table.focus_content(added_content=getattr(self, "added_content_{0}_list".format(TYPE))[-1])
+
+if "umx_file_path" in self.temp_variables:
+    file_path = self.temp_variables["umx_file_path"]
+else:
+    file_path, file_type = QFileDialog.getOpenFileName(self, 'select unmixing method file', gf.settings["method dir"], filter="unmixing method files (*.umx)")
+if file_path.endswith(".umx"):
+    self.temp_variables["umx_file_path"] = file_path
+
+if file_path:
+    UMX = gf.load_umx(file_path)
+    for procedure, kwargs in UMX.procedures:
+        print("a###")
+        print(procedure)
+        if procedure == "execute_unmixing":
+            execute_unmixing(self.current_focused_window.toolbar_layout, **kwargs)
+            log = None
+        else:
+            func = getattr(self.current_focused_window.toolbar_layout, procedure)
+            log = func(**kwargs)
+        try:
+            if log.startswith("not executed"):
+                warning_popup = popups.WarningPopup(log)
+                warning_popup.exec_()
+                break
+        except:
+            pass
+
+
+
+
+
+

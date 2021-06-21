@@ -1,0 +1,9 @@
+[
+    [
+        "open_window",
+        {
+            "window_type": "filter by file name: ^.+_original\\.spc$",
+            "itemData": "^.+_original\\.spc$"
+        }
+    ]
+]

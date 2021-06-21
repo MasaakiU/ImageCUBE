@@ -1,0 +1,39 @@
+[
+    [
+        "open_window",
+        {
+            "window_type": "hyperspectral data"
+        }
+    ],
+    [
+        "go_to_position_of_interest",
+        {
+            "poi_key": "@cfp"
+        }
+    ],
+    [
+        "select_added_item",
+        {
+            "map_or_spectrum": "spectrum",
+            "target_type": "index",
+            "target_text": "",
+            "target_idx": 0
+        }
+    ],
+    [
+        "export_data",
+        {
+            "map_or_spectrum": "spectrum",
+            "ext_ask": {
+                "ask": false,
+                "ext": ".spc"
+            }
+        }
+    ],
+    [
+        "close_window",
+        {
+            "target": "current focused"
+        }
+    ]
+]

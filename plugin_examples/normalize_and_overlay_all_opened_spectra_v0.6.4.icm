@@ -1,0 +1,43 @@
+# process for all opened window
+range_settings_popup = popups.RangeSettingsPopup(initial_values=(2600, 3200))
+done = range_settings_popup.exec_()
+if done:
+    sRS, eRS = range_settings_popup.values()
+    xData_list = np.empty((0), float)
+    yData_list = np.empty((0), float)
+    connect = np.empty((0), float)
+    for child_window in self.child_window_list:
+        # データ取得
+        spc_file = child_window.spectrum_widget.spc_file
+        if spc_file.fnsub > 1:
+            continue
+        xData, yData = spc_file.get_data(sRS, eRS, 0)
+        # データ高さ補正
+        yData = (yData - yData.min()) / np.ptp(yData)
+        xData_list = np.hstack((xData_list, xData))
+        yData_list = np.hstack((yData_list, yData))
+        connect = np.hstack((connect, np.ones(len(xData) - 1, dtype=float), [0]))
+    # make sub
+    sub_like = gf.SubLike()
+    sub_like.init_fmt(child_window.spectrum_widget.spc_file.sub[0])
+    sub_like.add_data(yData_list, sub_idx=0)
+    # make spc
+    spc_like = gf.SpcLike()
+    spc_like.init_fmt(child_window.spectrum_widget.spc_file)
+    spc_like.add_xData(xData_list)
+    spc_like.add_subLike(sub_like)
+    # remove pre process
+    spc_like.remove_all_prep(except_list=[])
+    spc_like.update_object(master_key="PreP", key_list=["prep_order"], data_list=[[]])
+    # display
+    file_path = os.path.join(os.path.expanduser("~"), "untitled.spc")
+    spectrum_window = SpectrumWindow(spc_like, file_path=file_path, parent=self, mode="newWin")
+    spectrum_window.spectrum_widget.plotItem.vb.addedItems[0].setData(xData_list, yData_list, connect=connect)
+    spectrum_window.show()
+    self.child_window_list.append(spectrum_window)
+
+
+
+
+
+

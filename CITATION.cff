@@ -1,0 +1,9 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Uematsu
+    given-names: Masaaki
+    orcid: https://orcid.org/0000-0002-0197-8401
+title: MasaakiU/ImageCUBE: v0.6.4
+version: v0.6.4
+date-released: 2017-12-18
